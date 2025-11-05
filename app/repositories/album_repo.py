@@ -1,25 +1,43 @@
-from sqlalchemy.orm import Session
-from sqlalchemy import select, and_
-from typing import Optional, List, Iterable
-from app.domain.models import Album, AlbumArtist
+# app/repositories/album_repo.py
+from typing import Optional, List, Iterable, Tuple, Dict, Iterable
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
+
+from app.domain.models import Album, Artist, album_artists_table
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 class AlbumRepository:
     def __init__(self, db: Session):
         self.db = db
 
+    # 단건 + artists/tracks까지 한 번에 로딩
     def get_by_id(self, album_id: str) -> Optional[Album]:
-        return self.db.execute(
-            select(Album).where(Album.id == album_id)
-        ).scalars().first()
-
-    def get_by_spotify_id(self, spotify_id: str) -> Optional[Album]:
-        return self.db.execute(
-            select(Album).where(Album.spotify_id == spotify_id)
-        ).scalars().first()
-
-    def search_by_title(self, q: str, limit: int, offset: int) -> List[Album]:
         stmt = (
             select(Album)
+            .options(
+                selectinload(Album.artists),
+                selectinload(Album.tracks),
+            )
+            .where(Album.id == album_id)
+        )
+        return self.db.execute(stmt).scalars().first()
+
+    def get_by_spotify_id(self, spotify_id: str) -> Optional[Album]:
+        stmt = (
+            select(Album)
+            .options(
+                selectinload(Album.artists),
+                selectinload(Album.tracks),
+            )
+            .where(Album.spotify_id == spotify_id)
+        )
+        return self.db.execute(stmt).scalars().first()
+
+    def search_by_title(self, q: str, limit: int, offset: int) -> List[Album]:
+        # 필요 시 artists 미리 로딩해서 N+1 방지
+        stmt = (
+            select(Album)
+            .options(selectinload(Album.artists))
             .where(Album.title.ilike(f"%{q}%"))
             .limit(limit)
             .offset(offset)
@@ -46,6 +64,7 @@ class AlbumRepository:
                 ent.ext_refs = {**(ent.ext_refs or {}), **ext_refs}
             self.db.add(ent)
             return ent
+
         ent = Album(
             spotify_id=spotify_id,
             title=title or "",
@@ -55,19 +74,51 @@ class AlbumRepository:
             ext_refs=ext_refs or {},
         )
         self.db.add(ent)
+        # artists/tracks는 이후 링크 함수에서 연결
         return ent
 
+    # ✅ secondary 테이블에 직접 insert
     def link_album_artists(self, album_id: str, artist_ids: Iterable[str]):
-        for aid in artist_ids:
-            # 중복 링크 방지
-            exists_link = self.db.execute(
-                select(AlbumArtist).where(
-                    and_(
-                        AlbumArtist.album_id == album_id,
-                        AlbumArtist.artist_id == aid,
-                    )
-                )
-            ).scalars().first()
-            if not exists_link:
-                self.db.add(AlbumArtist(album_id=album_id, artist_id=aid))
+        rows = [{"album_id": album_id, "artist_id": aid, "role": None} for aid in artist_ids]
+        if not rows:
+            return
+        stmt = pg_insert(album_artists_table).values(rows)
+        # (album_id, artist_id) 복합 PK 기준으로 중복 무시
+        stmt = stmt.on_conflict_do_nothing(
+            index_elements=["album_id", "artist_id"]
+        )
+        self.db.execute(stmt)
         self.db.flush()
+
+    # ✅ secondary 테이블로 조인해서 앨범 + 아티스트 반환
+    def get_with_artists(self, album_id: str) -> Tuple[Optional[Album], List[Artist]]:
+        album = self.get_by_id(album_id)
+        if not album:
+            return None, []
+        artists_stmt = (
+            select(Artist)
+            .join(album_artists_table, album_artists_table.c.artist_id == Artist.id)
+            .where(album_artists_table.c.album_id == album_id)
+        )
+        artists = list(self.db.execute(artists_stmt).scalars().all())
+        return album, artists
+
+    # ✅ 앨범들에 대한 '대표 아티스트'(첫 번째 아티스트) 맵 생성
+    # 반환: { album_id(str): (artist_name or None, artist_spotify_id or None) }
+    def get_primary_artist_map(self, album_ids: List[str]) -> Dict[str, Tuple[Optional[str], Optional[str]]]:
+        if not album_ids:
+            return {}
+
+        rows = self.db.execute(
+            select(Album.id, Artist.name, Artist.spotify_id)
+            .join(album_artists_table, album_artists_table.c.album_id == Album.id)
+            .join(Artist, album_artists_table.c.artist_id == Artist.id)
+            .where(Album.id.in_(album_ids))
+        ).all()
+
+        result: Dict[str, Tuple[Optional[str], Optional[str]]] = {}
+        for al_id, ar_name, ar_spid in rows:
+            # 첫 번째로 본 아티스트를 대표로 고정
+            if str(al_id) not in result:
+                result[str(al_id)] = (ar_name, ar_spid)
+        return result

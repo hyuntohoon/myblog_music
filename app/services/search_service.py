@@ -17,16 +17,17 @@ class SearchService:
         """
         기본 검색은 내부 DB만 조회.
         - mode == "artist": 아티스트명 like 검색
-        - mode == "album" : 앨범명 like 검색
+        - mode == "album" : 앨범명 like 검색 (+대표 아티스트 1명 매핑)
         응답 스키마의 id는 문자열로 강제 변환(str)한다.
         """
         if mode == "artist":
             artists = self.artist_repo.search_by_name(q, limit, offset)
             items = [
                 ArtistItem(
-                    id=str(a.id),                # <- 문자열로 통일
+                    id=str(a.id),
                     name=a.name,
-                    spotify_id=a.spotify_id
+                    spotify_id=a.spotify_id,
+                    cover_url=a.photo_url,
                 )
                 for a in artists
             ]
@@ -34,14 +35,21 @@ class SearchService:
 
         # default: album
         albums = self.album_repo.search_by_title(q, limit, offset)
+
+        # 앨범들의 대표 아티스트 맵 (album_id -> (artist_name, artist_spotify_id))
+        album_ids = [str(al.id) for al in albums]
+        primary_map = self.album_repo.get_primary_artist_map(album_ids)
+
         items = [
             AlbumItem(
-                id=str(al.id),                   # <- 문자열로 통일
+                id=str(al.id),
                 title=al.title,
                 release_date=al.release_date.isoformat() if al.release_date else None,
                 cover_url=al.cover_url,
                 album_type=al.album_type,
-                spotify_id=al.spotify_id
+                spotify_id=al.spotify_id,
+                artist_name=(primary_map.get(str(al.id)) or (None, None))[0],
+                artist_spotify_id=(primary_map.get(str(al.id)) or (None, None))[1],
             )
             for al in albums
         ]

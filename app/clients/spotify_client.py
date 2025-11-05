@@ -1,5 +1,5 @@
 import base64, time, httpx
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from app.core.config import settings
 
 class SpotifyClient:
@@ -99,5 +99,19 @@ class SpotifyClient:
             url = next_url
             params = {}
         return items
+    
+    def get_artists(self, ids: List[str]) -> List[Dict[str, Any]]:
+        if not ids:
+            return []
+        params = {"ids": ",".join(ids)}
+        r = httpx.get(
+            f"{settings.SPOTIFY_API_BASE}/artists",
+            headers=self._headers(),
+            params=params,
+            timeout=20,
+        )
+        r.raise_for_status()
+        data = r.json()
+        return data.get("artists", [])
 
 spotify = SpotifyClient()

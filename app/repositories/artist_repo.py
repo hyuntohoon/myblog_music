@@ -45,16 +45,30 @@ class ArtistRepository:
         return m
 
     # 필요 시 사용할 수 있는 최소 업서트(사용 안 하면 지워도 됨)
-    def upsert_min(self, *, spotify_id: str, name: str, ext_refs: dict | None) -> Artist:
+    def upsert_min(
+        self,
+        *,
+        spotify_id: str,
+        name: str,
+        photo_url: str | None = None,
+        ext_refs: dict | None = None,
+    ) -> Artist:
         ent = self.get_by_spotify_id(spotify_id)
         if ent:
             if name:
                 ent.name = name
+            if photo_url is not None:
+                ent.photo_url = photo_url
             if ext_refs:
                 ent.ext_refs = {**(ent.ext_refs or {}), **ext_refs}
             self.db.add(ent)
             return ent
-        ent = Artist(spotify_id=spotify_id, name=name, ext_refs=ext_refs or {})
+
+        ent = Artist(
+            spotify_id=spotify_id,
+            name=name,
+            photo_url=photo_url,
+            ext_refs=ext_refs or {},
+        )
         self.db.add(ent)
-        # Text PK + default=gen_uuid 이면 객체 생성 시점에 id가 들어가므로 flush 불필요
         return ent
