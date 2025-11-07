@@ -6,6 +6,8 @@ from app.repositories.album_repo import AlbumRepository
 from app.domain.schemas import SearchResult, ArtistItem, AlbumItem
 from app.clients.spotify_client import spotify
 
+ALLOWED_TYPES: Set[str] = {"album", "artist", "track"}
+
 
 class SearchService:
     def __init__(self, db: Session):
@@ -89,3 +91,133 @@ class SearchService:
             )
 
         return SearchResult(type="album", items=items)
+    
+class CandidateSearchService:
+    """Spotify 후보 검색 + 앨범 ID 수집 + SQS enqueue 까지 담당 (디버그/로그 없음)"""
+
+    def __init__(self, sqs: SqsClient, default_market: str = "KR") -> None:
+        self.sqs = sqs
+        self.default_market = default_market
+
+    # ---------- 외부 API ----------
+    def search_candidates(
+        self,
+        q: str,
+        typ: str,
+        market: Optional[str],
+        limit: int,
+        offset: int,
+        include_external: Optional[str],
+    ) -> Dict[str, Any]:
+        wanted = self._normalize_types(typ)
+        type_str = ",".join(wanted)
+
+        data = spotify.search(
+            q=q,
+            type=type_str,
+            market=market,
+            limit=limit,
+            offset=offset,
+            include_external=include_external,
+        )
+
+        out: Dict[str, Any] = {}
+        if "albums" in data and data["albums"]:
+            out["albums"] = [self._map_album_item(a) for a in (data["albums"].get("items") or [])]
+            out["albums_pagination"] = self._page_info(data["albums"])
+        if "artists" in data and data["artists"]:
+            out["artists"] = [self._map_artist_item(a) for a in (data["artists"].get("items") or [])]
+            out["artists_pagination"] = self._page_info(data["artists"])
+        if "tracks" in data and data["tracks"]:
+            out["tracks"] = [self._map_track_item(t) for t in (data["tracks"].get("items") or [])]
+            out["tracks_pagination"] = self._page_info(data["tracks"])
+
+        # 앨범ID 수집 후 SQS 전송 (실패 시 조용히 무시)
+        album_ids = self._collect_album_ids(out)
+        if album_ids:
+            self.sqs.enqueue_album_sync(album_ids, market or self.default_market)
+
+        return out
+
+    # ---------- 내부 유틸 ----------
+    def _normalize_types(self, typ: str) -> List[str]:
+        raw = [t.strip().lower() for t in (typ or "").split(",") if t.strip()]
+        wanted = [t for t in raw if t in ALLOWED_TYPES]
+        if not wanted:
+            raise ValueError(f"type must include at least one of {sorted(ALLOWED_TYPES)}")
+        return wanted
+
+    @staticmethod
+    def _page_info(block: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "total": block.get("total"),
+            "limit": block.get("limit"),
+            "offset": block.get("offset"),
+            "next": block.get("next"),
+            "previous": block.get("previous"),
+            "href": block.get("href"),
+        }
+
+    @staticmethod
+    def _map_album_item(a: Dict[str, Any]) -> Dict[str, Any]:
+        images = a.get("images") or []
+        cover = images[0]["url"] if images else None
+        primary_artist = (a.get("artists") or [{}])[0]
+        return {
+            "spotify_id": a.get("id"),
+            "title": a.get("name"),
+            "album_type": a.get("album_type"),
+            "release_date": a.get("release_date"),
+            "cover_url": cover,
+            "artist_name": primary_artist.get("name"),
+            "artist_spotify_id": primary_artist.get("id"),
+            "external_url": (a.get("external_urls") or {}).get("spotify"),
+        }
+
+    @staticmethod
+    def _map_artist_item(ar: Dict[str, Any]) -> Dict[str, Any]:
+        images = ar.get("images") or []
+        photo = images[0]["url"] if images else None
+        return {
+            "spotify_id": ar.get("id"),
+            "name": ar.get("name"),
+            "genres": ar.get("genres") or [],
+            "photo_url": photo,
+            "external_url": (ar.get("external_urls") or {}).get("spotify"),
+        }
+
+    @staticmethod
+    def _map_track_item(t: Dict[str, Any]) -> Dict[str, Any]:
+        album = t.get("album") or {}
+        images = album.get("images") or []
+        cover = images[0]["url"] if images else None
+        primary_artist = (t.get("artists") or [{}])[0]
+        return {
+            "spotify_id": t.get("id"),
+            "title": t.get("name"),
+            "duration_ms": t.get("duration_ms"),
+            "track_number": t.get("track_number"),
+            "album": {
+                "spotify_id": album.get("id"),
+                "title": album.get("name"),
+                "release_date": album.get("release_date"),
+                "cover_url": cover,
+            },
+            "artist_name": primary_artist.get("name"),
+            "artist_spotify_id": primary_artist.get("id"),
+            "external_url": (t.get("external_urls") or {}).get("spotify"),
+        }
+
+    @staticmethod
+    def _collect_album_ids(out: Dict[str, Any]) -> List[str]:
+        ids: Set[str] = set()
+        for a in out.get("albums") or []:
+            sid = (a or {}).get("spotify_id")
+            if sid:
+                ids.add(sid)
+        for t in out.get("tracks") or []:
+            alb = (t or {}).get("album") or {}
+            sid = alb.get("spotify_id") or alb.get("id")
+            if sid:
+                ids.add(sid)
+        return list(ids)
