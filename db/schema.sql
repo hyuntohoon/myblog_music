@@ -191,3 +191,10 @@ CREATE TABLE op_logs (
   note TEXT
 );
 CREATE INDEX idx_op_logs_occurred_at ON op_logs(occurred_at);
+
+CREATE INDEX idx_artists_popularity_followers_views
+ON artists (popularity DESC, followers DESC, views DESC);
+
+CREATE INDEX idx_albums_popularity_views
+ON albums (popularity DESC, views DESC);
+

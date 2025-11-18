@@ -16,11 +16,16 @@ class ArtistRepository:
         return self.db.execute(
             select(Artist).where(Artist.id == artist_id)
         ).scalars().first()
-
+    
     def search_by_name(self, q: str, limit: int, offset: int) -> List[Artist]:
         stmt = (
             select(Artist)
             .where(Artist.name.ilike(f"%{q}%"))
+            .order_by(
+                Artist.popularity.desc().nullslast(),
+                Artist.followers.desc().nullslast(),
+                Artist.views.desc(),
+            )
             .limit(limit)
             .offset(offset)
         )

@@ -1,10 +1,20 @@
 # app/domain/models.py
 import uuid
 from datetime import datetime, date
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 
 from sqlalchemy.orm import declarative_base, Mapped, mapped_column, relationship
-from sqlalchemy import Text, Integer, Date, DateTime, ForeignKey, text, Table, Column
+from sqlalchemy import (
+    Text,
+    Integer,
+    Date,
+    DateTime,
+    ForeignKey,
+    text,
+    Table,
+    Column,
+    BigInteger,
+)
 from sqlalchemy.dialects.postgresql import UUID as PGUUID, JSONB
 
 Base = declarative_base()
@@ -59,11 +69,45 @@ class Artist(Base):
         primary_key=True,
         server_default=text("gen_random_uuid()"),
     )
-    name: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
-    spotify_id: Mapped[Optional[str]] = mapped_column(Text)
-    photo_url: Mapped[Optional[str]] = mapped_column(Text)  # 스키마에 존재하므로 매핑
-    ext_refs: Mapped[Dict] = mapped_column(JSONB, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=text("now()"))
+    # 동명이인 허용 → unique 제거
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # NOT NULL + UNIQUE
+    spotify_id: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+
+    # JSONB NOT NULL DEFAULT '[]'::jsonb
+    genres: Mapped[List[str]] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'[]'::jsonb"),
+    )
+
+    photo_url: Mapped[Optional[str]] = mapped_column(Text)
+
+    # follower BIGINT (컬럼명 그대로 맞춤)
+    followers: Mapped[Optional[int]] = mapped_column("followers", BigInteger)
+
+    popularity: Mapped[Optional[int]] = mapped_column(Integer)
+
+    spotify_url: Mapped[Optional[str]] = mapped_column(Text)
+
+    views: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        server_default=text("0"),
+    )
+
+    ext_refs: Mapped[Dict] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        server_default=text("NOW()"),
+    )
 
     # relationships
     albums: Mapped[list["Album"]] = relationship(
@@ -92,10 +136,32 @@ class Album(Base):
     release_date: Mapped[Optional[date]] = mapped_column(Date)
     cover_url: Mapped[Optional[str]] = mapped_column(Text)
     album_type: Mapped[Optional[str]] = mapped_column(Text)
-    spotify_id: Mapped[Optional[str]] = mapped_column(Text)
-    ext_refs: Mapped[Dict] = mapped_column(JSONB, default=dict)
-    views: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=text("now()"))
+
+    # NOT NULL + UNIQUE
+    spotify_id: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+
+    ext_refs: Mapped[Dict] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+    )
+
+    # 새 컬럼들
+    total_tracks: Mapped[Optional[int]] = mapped_column(Integer)
+    label: Mapped[Optional[str]] = mapped_column(Text)
+    popularity: Mapped[Optional[int]] = mapped_column(Integer)
+
+    views: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        server_default=text("0"),
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        server_default=text("NOW()"),
+    )
 
     # relationships
     artists: Mapped[list[Artist]] = relationship(
@@ -129,9 +195,24 @@ class Track(Base):
     track_no: Mapped[Optional[int]] = mapped_column(Integer)
     duration_sec: Mapped[Optional[int]] = mapped_column(Integer)
     spotify_id: Mapped[Optional[str]] = mapped_column(Text)
-    ext_refs: Mapped[Dict] = mapped_column(JSONB, default=dict)
-    views: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=text("now()"))
+
+    ext_refs: Mapped[Dict] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+    )
+
+    views: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        server_default=text("0"),
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        server_default=text("NOW()"),
+    )
 
     # relationships
     album: Mapped[Album] = relationship(

@@ -32,7 +32,7 @@ class ArtistItemMapper:
                     spotify_id=a.spotify_id,
                     cover_url=a.photo_url,
                     genres=ArtistItemMapper._normalize_genres(getattr(a, "genres", None)),
-                    follower_count=getattr(a, "follower_count", None),
+                    followers=getattr(a, "followers", None),
                     popularity=getattr(a, "popularity", None),
                     spotify_url=spotify_url,
                 )

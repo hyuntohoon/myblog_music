@@ -9,7 +9,7 @@ class ArtistItem(BaseModel):
     spotify_id: Optional[str] = None
     cover_url: Optional[str] = None          # artists.photo_url 매핑
     genres: List[str] = Field(default_factory=list)
-    follower_count: Optional[int] = None
+    followers_count: Optional[int] = None
     popularity: Optional[int] = None
     spotify_url: Optional[str] = None        # artists.spotify_url or ext_refs["spotify_url"]
 
@@ -50,7 +50,7 @@ class ArtistOut(BaseModel):
     spotify_id: Optional[str] = None
     photo_url: Optional[str] = None          # artists.photo_url
     genres: List[str] = Field(default_factory=list)
-    follower_count: Optional[int] = None
+    followers_count: Optional[int] = None
     popularity: Optional[int] = None
     spotify_url: Optional[str] = None        # artists.spotify_url
 

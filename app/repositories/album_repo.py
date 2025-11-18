@@ -41,6 +41,7 @@ class AlbumRepository:
             .where(Album.title.ilike(f"%{q}%"))
             .limit(limit)
             .offset(offset)
+            .order_by(Album.popularity.desc().nullslast())
         )
         return list(self.db.execute(stmt).scalars().all())
 
@@ -131,3 +132,40 @@ class AlbumRepository:
             select(Album.spotify_id).where(Album.spotify_id.in_(ids_list))
         ).all()
         return set(rows)
+    
+    def list_by_artist(
+        self,
+        *,
+        artist_id: str,
+        limit: int,
+        offset: int,
+    ) -> Tuple[List[Album], Dict[str, tuple[str | None, str | None]]]:
+        """
+        특정 아티스트가 참여한 앨범 + 대표 아티스트 맵 반환
+        primary_map: { album_uuid: (artist_name, artist_spotify_id) }
+        """
+        stmt = (
+            select(Album, Artist)
+            .join(album_artists_table, album_artists_table.c.album_id == Album.id)
+            .join(Artist, album_artists_table.c.artist_id == Artist.id)
+            .where(Artist.id == artist_id)
+            .order_by(
+                Album.popularity.desc().nullslast(),
+                Album.release_date.desc().nullslast(),
+            )
+            .limit(limit)
+            .offset(offset)
+        )
+
+        rows = self.db.execute(stmt).all()
+
+        albums: List[Album] = []
+        primary_map: Dict[str, tuple[str | None, str | None]] = {}
+
+        for al, ar in rows:
+            albums.append(al)
+            # 이 엔드포인트에선 "요 아티스트 기준으로 본 대표 아티스트"니까 그냥 그 아티스트를 매핑
+            if al.id not in primary_map:
+                primary_map[al.id] = (ar.name, ar.spotify_id)
+
+        return albums, primary_map
