@@ -1,5 +1,5 @@
 # app/repositories/album_repo.py
-from typing import Optional, List, Iterable, Tuple, Dict, Iterable
+from typing import Optional, List, Iterable, Tuple, Dict, Iterable, Set
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -122,3 +122,12 @@ class AlbumRepository:
             if str(al_id) not in result:
                 result[str(al_id)] = (ar_name, ar_spid)
         return result
+    
+    def get_existing_spotify_ids(self, ids: Iterable[str]) -> Set[str]:
+        ids_list: List[str] = [i for i in ids if i]
+        if not ids_list:
+            return set()
+        rows = self.db.scalars(
+            select(Album.spotify_id).where(Album.spotify_id.in_(ids_list))
+        ).all()
+        return set(rows)

@@ -9,7 +9,7 @@ from app.domain.schemas import SearchResult
 from app.services.search_service import SearchService as DBSearchService  
 
 from app.clients.sqs_client import SqsClient
-from app.services.search_service import CandidateSearchService  # (이번에 만든 후보검색 서비스)
+from app.services.cadidate_search_service import CandidateSearchService  # (이번에 만든 후보검색 서비스)
 
 router = APIRouter()
 
@@ -39,12 +39,13 @@ def search_candidates(
     market: Optional[str] = Query(None, description="예: KR, US"),
     limit: int = Query(10, ge=1, le=50),
     offset: int = Query(0, ge=0, le=1000),
+    db: Session = Depends(get_db),
     include_external: Optional[str] = Query(None, description='선택값: "audio"'),
 ):
     if include_external not in (None, "audio"):
         raise HTTPException(status_code=400, detail='include_external must be "audio" or omitted')
 
-    service = CandidateSearchService(sqs=SqsClient())
+    service = CandidateSearchService(db =db, sqs=SqsClient())
     try:
         return service.search_candidates(
             q=q, typ=type, market=market, limit=limit, offset=offset, include_external=include_external

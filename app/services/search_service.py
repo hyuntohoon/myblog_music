@@ -3,11 +3,13 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 from app.repositories.artist_repo import ArtistRepository
 from app.repositories.album_repo import AlbumRepository
-from app.domain.schemas import SearchResult, ArtistItem, AlbumItem
+from app.domain.schemas import SearchResult
 from app.clients.spotify_client import spotify
+from app.mappers.album_mapper import AlbumItemMapper
+from app.mappers.artist_mapper import ArtistItemMapper
+from app.mappers.album_candidate_mapper import AlbumCandidateMapper
 
 ALLOWED_TYPES: Set[str] = {"album", "artist", "track"}
-
 
 class SearchService:
     def __init__(self, db: Session):
@@ -16,208 +18,41 @@ class SearchService:
         self.album_repo = AlbumRepository(db)
 
     def basic_search(self, *, mode: str, q: str, limit: int, offset: int) -> SearchResult:
-        """
-        기본 검색은 내부 DB만 조회.
-        - mode == "artist": 아티스트명 like 검색
-        - mode == "album" : 앨범명 like 검색 (+대표 아티스트 1명 매핑)
-        응답 스키마의 id는 문자열로 강제 변환(str)한다.
-        """
-        if mode == "artist":
-            artists = self.artist_repo.search_by_name(q, limit, offset)
-            items = [
-                ArtistItem(
-                    id=str(a.id),
-                    name=a.name,
-                    spotify_id=a.spotify_id,
-                    cover_url=a.photo_url,
-                )
-                for a in artists
-            ]
-            return SearchResult(type="artist", items=items)
+        mode = (mode or "album").lower()
+        handlers = {
+            "artist": self._handle_artist_search,
+            "album": self._handle_album_search,
+        }
+        handler = handlers.get(mode, self._handle_album_search)
+        return handler(q, limit, offset)
 
-        # default: album
+    # ---------------- 내부 전용 ---------------- #
+
+    def _handle_artist_search(self, q: str, limit: int, offset: int) -> SearchResult:
+        artists = self.artist_repo.search_by_name(q, limit, offset)
+        items = ArtistItemMapper.to_list(artists)
+        return SearchResult(type="artist", items=items)
+
+    def _handle_album_search(self, q: str, limit: int, offset: int) -> SearchResult:
         albums = self.album_repo.search_by_title(q, limit, offset)
-
-        # 앨범들의 대표 아티스트 맵 (album_id -> (artist_name, artist_spotify_id))
-        album_ids = [str(al.id) for al in albums]
-        primary_map = self.album_repo.get_primary_artist_map(album_ids)
-
-        items = [
-            AlbumItem(
-                id=str(al.id),
-                title=al.title,
-                release_date=al.release_date.isoformat() if al.release_date else None,
-                cover_url=al.cover_url,
-                album_type=al.album_type,
-                spotify_id=al.spotify_id,
-                artist_name=(primary_map.get(str(al.id)) or (None, None))[0],
-                artist_spotify_id=(primary_map.get(str(al.id)) or (None, None))[1],
-            )
-            for al in albums
-        ]
+        primary_map = self._primary_map_for(albums)
+        items = AlbumItemMapper.to_list(albums, primary_map)
         return SearchResult(type="album", items=items)
 
+    def _primary_map_for(self, albums: list) -> dict[str, tuple[str | None, str | None]]:
+        if not albums:
+            return {}
+        album_ids = [al.id for al in albums]
+        return self.album_repo.get_primary_artist_map(album_ids)
+
     def external_candidates(self, *, mode: str, q: str, artist: str | None, limit: int) -> SearchResult:
-        """
-        추가 조회(외부)는 정책상 현재 앨범만 지원.
-        Spotify 검색 결과를 얇게 매핑해서 후보만 반환한다.
-        """
-        if mode != "album":
+        # 현재 정책상 album만 지원
+        if mode.lower() != "album":
             return SearchResult(type=mode, items=[])
 
         data = spotify.search_albums(album=q, artist=artist, limit=limit) or {}
         albums = (data.get("albums") or {}).get("items") or []
 
-        items: list[AlbumItem] = []
-        for it in albums:
-            artists_in_item = it.get("artists") or []
-            first_artist = artists_in_item[0] if artists_in_item else {}
-
-            images = it.get("images") or []
-            cover_url = images[0].get("url") if images else None
-
-            items.append(
-                AlbumItem(
-                    id="",  # 아직 DB에 없음 → 빈 문자열로 표시 (클라이언트가 spotify_id로 확정 호출)
-                    title=it.get("name"),
-                    release_date=it.get("release_date"),
-                    cover_url=cover_url,
-                    album_type=it.get("album_type"),
-                    spotify_id=it.get("id"),
-                    # 아래 두 필드는 AlbumItem에 optional로 선언되어 있어야 함
-                    artist_name=first_artist.get("name"),
-                    artist_spotify_id=first_artist.get("id"),
-                )
-            )
-
+        items = AlbumCandidateMapper.to_list(albums)
         return SearchResult(type="album", items=items)
     
-class CandidateSearchService:
-    """Spotify 후보 검색 + 앨범 ID 수집 + SQS enqueue 까지 담당 (디버그/로그 없음)"""
-
-    def __init__(self, sqs: SqsClient, default_market: str = "KR") -> None:
-        self.sqs = sqs
-        self.default_market = default_market
-
-    # ---------- 외부 API ----------
-    def search_candidates(
-        self,
-        q: str,
-        typ: str,
-        market: Optional[str],
-        limit: int,
-        offset: int,
-        include_external: Optional[str],
-    ) -> Dict[str, Any]:
-        wanted = self._normalize_types(typ)
-        type_str = ",".join(wanted)
-
-        data = spotify.search(
-            q=q,
-            type=type_str,
-            market=market,
-            limit=limit,
-            offset=offset,
-            include_external=include_external,
-        )
-
-        out: Dict[str, Any] = {}
-        if "albums" in data and data["albums"]:
-            out["albums"] = [self._map_album_item(a) for a in (data["albums"].get("items") or [])]
-            out["albums_pagination"] = self._page_info(data["albums"])
-        if "artists" in data and data["artists"]:
-            out["artists"] = [self._map_artist_item(a) for a in (data["artists"].get("items") or [])]
-            out["artists_pagination"] = self._page_info(data["artists"])
-        if "tracks" in data and data["tracks"]:
-            out["tracks"] = [self._map_track_item(t) for t in (data["tracks"].get("items") or [])]
-            out["tracks_pagination"] = self._page_info(data["tracks"])
-
-        # 앨범ID 수집 후 SQS 전송 (실패 시 조용히 무시)
-        album_ids = self._collect_album_ids(out)
-        if album_ids:
-            self.sqs.enqueue_album_sync(album_ids, market or self.default_market)
-
-        return out
-
-    # ---------- 내부 유틸 ----------
-    def _normalize_types(self, typ: str) -> List[str]:
-        raw = [t.strip().lower() for t in (typ or "").split(",") if t.strip()]
-        wanted = [t for t in raw if t in ALLOWED_TYPES]
-        if not wanted:
-            raise ValueError(f"type must include at least one of {sorted(ALLOWED_TYPES)}")
-        return wanted
-
-    @staticmethod
-    def _page_info(block: Dict[str, Any]) -> Dict[str, Any]:
-        return {
-            "total": block.get("total"),
-            "limit": block.get("limit"),
-            "offset": block.get("offset"),
-            "next": block.get("next"),
-            "previous": block.get("previous"),
-            "href": block.get("href"),
-        }
-
-    @staticmethod
-    def _map_album_item(a: Dict[str, Any]) -> Dict[str, Any]:
-        images = a.get("images") or []
-        cover = images[0]["url"] if images else None
-        primary_artist = (a.get("artists") or [{}])[0]
-        return {
-            "spotify_id": a.get("id"),
-            "title": a.get("name"),
-            "album_type": a.get("album_type"),
-            "release_date": a.get("release_date"),
-            "cover_url": cover,
-            "artist_name": primary_artist.get("name"),
-            "artist_spotify_id": primary_artist.get("id"),
-            "external_url": (a.get("external_urls") or {}).get("spotify"),
-        }
-
-    @staticmethod
-    def _map_artist_item(ar: Dict[str, Any]) -> Dict[str, Any]:
-        images = ar.get("images") or []
-        photo = images[0]["url"] if images else None
-        return {
-            "spotify_id": ar.get("id"),
-            "name": ar.get("name"),
-            "genres": ar.get("genres") or [],
-            "photo_url": photo,
-            "external_url": (ar.get("external_urls") or {}).get("spotify"),
-        }
-
-    @staticmethod
-    def _map_track_item(t: Dict[str, Any]) -> Dict[str, Any]:
-        album = t.get("album") or {}
-        images = album.get("images") or []
-        cover = images[0]["url"] if images else None
-        primary_artist = (t.get("artists") or [{}])[0]
-        return {
-            "spotify_id": t.get("id"),
-            "title": t.get("name"),
-            "duration_ms": t.get("duration_ms"),
-            "track_number": t.get("track_number"),
-            "album": {
-                "spotify_id": album.get("id"),
-                "title": album.get("name"),
-                "release_date": album.get("release_date"),
-                "cover_url": cover,
-            },
-            "artist_name": primary_artist.get("name"),
-            "artist_spotify_id": primary_artist.get("id"),
-            "external_url": (t.get("external_urls") or {}).get("spotify"),
-        }
-
-    @staticmethod
-    def _collect_album_ids(out: Dict[str, Any]) -> List[str]:
-        ids: Set[str] = set()
-        for a in out.get("albums") or []:
-            sid = (a or {}).get("spotify_id")
-            if sid:
-                ids.add(sid)
-        for t in out.get("tracks") or []:
-            alb = (t or {}).get("album") or {}
-            sid = alb.get("spotify_id") or alb.get("id")
-            if sid:
-                ids.add(sid)
-        return list(ids)

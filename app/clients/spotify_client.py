@@ -16,6 +16,7 @@ class SpotifyClient:
         headers = {
             "Authorization": "Basic " + base64.b64encode(auth).decode(),
             "Content-Type": "application/x-www-form-urlencoded",
+            "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.5",
         }
         data = {"grant_type": "client_credentials"}
         r = httpx.post(settings.SPOTIFY_TOKEN_URL, headers=headers, data=data, timeout=20)
@@ -52,6 +53,8 @@ class SpotifyClient:
             params["market"] = mkt
         if include_external:
             params["include_external"] = include_external
+
+        params["locale"] = "ko_KR"
 
         r = httpx.get(f"{settings.SPOTIFY_API_BASE}/search", headers=self._headers(), params=params, timeout=20)
         r.raise_for_status()
