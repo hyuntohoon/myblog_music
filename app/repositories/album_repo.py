@@ -2,7 +2,8 @@
 from typing import Optional, List, Iterable, Tuple, Dict, Iterable, Set
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
-
+from typing import Callable, Tuple, List, Dict
+from sqlalchemy.sql.elements import BinaryExpression
 from app.domain.models import Album, Artist, album_artists_table
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -124,31 +125,65 @@ class AlbumRepository:
                 result[str(al_id)] = (ar_name, ar_spid)
         return result
     
+    import time
+    from typing import Iterable, List, Set
+
     def get_existing_spotify_ids(self, ids: Iterable[str]) -> Set[str]:
         ids_list: List[str] = [i for i in ids if i]
+        print(f"[AlbumRepository] get_existing_spotify_ids called with {len(ids_list)} ids")
         if not ids_list:
+            print("[AlbumRepository] empty id list, returning empty set")
             return set()
-        rows = self.db.scalars(
-            select(Album.spotify_id).where(Album.spotify_id.in_(ids_list))
-        ).all()
-        return set(rows)
-    
-    def list_by_artist(
+
+        try:
+            print(f"[AlbumRepository] executing select for first 5 ids: {ids_list[:5]}")
+
+            t0 = time.perf_counter()
+            # 세션에서 커넥션 뽑는 타이밍도 보고 싶으면 이렇게 한 번 강제로 연결
+            print("[AlbumRepository] acquiring DB connection...")
+            conn = self.db.connection()
+            print("[AlbumRepository] DB connection acquired in "
+                f"{time.perf_counter() - t0:.3f}s")
+
+            t1 = time.perf_counter()
+            stmt = select(Album.spotify_id).where(Album.spotify_id.in_(ids_list))
+            print("[AlbumRepository] statement built")
+
+            print("[AlbumRepository] executing scalars()...")
+            scalars = self.db.scalars(stmt)
+            t2 = time.perf_counter()
+            print("[AlbumRepository] scalars() returned in "
+                f"{t2 - t1:.3f}s, now calling .all()")
+
+            rows = scalars.all()
+            t3 = time.perf_counter()
+            print("[AlbumRepository] .all() returned in "
+                f"{t3 - t2:.3f}s, total DB time {t3 - t0:.3f}s")
+
+            print(f"[AlbumRepository] query done, fetched {len(rows)} rows")
+            return set(rows)
+
+        except Exception as e:
+            import traceback
+            print("[AlbumRepository] ERROR during DB query:", repr(e))
+            traceback.print_exc()
+            return set()
+
+
+    # ---- 공통 내부 함수 ----
+    def _list_by_artistId_artist_filter(
         self,
         *,
-        artist_id: str,
+        filter_expr: BinaryExpression,
         limit: int,
         offset: int,
     ) -> Tuple[List[Album], Dict[str, tuple[str | None, str | None]]]:
-        """
-        특정 아티스트가 참여한 앨범 + 대표 아티스트 맵 반환
-        primary_map: { album_uuid: (artist_name, artist_spotify_id) }
-        """
+
         stmt = (
             select(Album, Artist)
             .join(album_artists_table, album_artists_table.c.album_id == Album.id)
             .join(Artist, album_artists_table.c.artist_id == Artist.id)
-            .where(Artist.id == artist_id)
+            .where(filter_expr)   # ← 조건만 다름
             .order_by(
                 Album.popularity.desc().nullslast(),
                 Album.release_date.desc().nullslast(),
@@ -164,8 +199,39 @@ class AlbumRepository:
 
         for al, ar in rows:
             albums.append(al)
-            # 이 엔드포인트에선 "요 아티스트 기준으로 본 대표 아티스트"니까 그냥 그 아티스트를 매핑
             if al.id not in primary_map:
                 primary_map[al.id] = (ar.name, ar.spotify_id)
 
         return albums, primary_map
+
+    # ---- 기존 wrapper: artist_id 기반 ----
+    def list_by_artistId_artist(
+        self,
+        *,
+        artist_id: str,
+        limit: int,
+        offset: int,
+    ):
+        return self._list_by_artistId_artist_filter(
+            filter_expr=(Artist.id == artist_id),
+            limit=limit,
+            offset=offset,
+        )
+
+    # ---- 새 wrapper: spotify_id 기반 ----
+    def list_by_spotify_artist(
+        self,
+        *,
+        spotify_id: str,
+        limit: int,
+        offset: int,
+    ):
+        return self._list_by_artistId_artist_filter(
+            filter_expr=(Artist.spotify_id == spotify_id),
+            limit=limit,
+            offset=offset,
+        )
+    
+    def get_by_spotify_id(self, spotify_id: str) -> Album | None:
+        stmt = select(Album).where(Album.spotify_id == spotify_id)
+        return self.db.execute(stmt).scalar_one_or_none()

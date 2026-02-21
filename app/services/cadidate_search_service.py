@@ -57,6 +57,10 @@ class CandidateSearchService:
         print("[CandidateSearchService] Collecting album IDs for SQS enqueue")
         try:
             album_ids = self._collect_album_ids(out)
+
+            print(f"[CandidateSearchService] collected {len(album_ids)} album_ids")
+             # 전부 보고 싶으면:
+            print("[CandidateSearchService] album_ids =", album_ids)
             if album_ids:
                 existing_ids = self.album_repo.get_existing_spotify_ids(album_ids)
                 new_ids = [id_ for id_ in album_ids if id_ not in existing_ids]

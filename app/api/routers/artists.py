@@ -19,3 +19,18 @@ def get_artist_albums(
     album_repo = AlbumRepository(db)
     svc = ArtistService(db, album_repo)
     return svc.list_albums_by_artist(artist_id=artist_id, limit=limit, offset=offset)
+
+@router.get("/spotify/{spotify_id}/albums", response_model=SearchResult)
+def get_spotify_artist_albums(
+    spotify_id: str = Path(...),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+):
+    album_repo = AlbumRepository(db)
+    svc = ArtistService(db, album_repo)
+    return svc.list_albums_by_spotify_artist(
+        spotify_id=spotify_id,
+        limit=limit,
+        offset=offset
+    )

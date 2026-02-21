@@ -73,3 +73,13 @@ class AlbumService:
             ],
             meta={"source": "db"},
         )
+    
+
+    def get_album_detail_by_spotify(self, spotify_id: str) -> AlbumDetail:
+        # albums 리포지토리에 이 메서드가 있다고 가정 (없으면 하나 만들면 됨)
+        al = self.albums.get_by_spotify_id(spotify_id)
+        if not al:
+            raise HTTPException(status_code=404, detail="album not found in DB")
+
+        # 내부 UUID로 기존 로직 재사용
+        return self.get_album_detail(str(al.id))

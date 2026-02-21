@@ -5,7 +5,7 @@ class Settings(BaseSettings):
     ENV: str = "local"
 
     # DB
-    DB_URL: str
+    DATABASE_URL: str
 
     # Spotify
     SPOTIFY_CLIENT_ID: str
