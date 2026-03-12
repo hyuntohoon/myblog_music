@@ -1,14 +1,16 @@
+from __future__ import annotations
+
+import json
 from app.domain.schemas import ArtistItem
+
 
 class ArtistItemMapper:
     @staticmethod
     def _normalize_genres(raw) -> list[str]:
         if raw is None:
             return []
-        # DB에 jsonb(list)로 들어온 경우
         if isinstance(raw, list):
             return [str(g) for g in raw]
-        # TEXT에 JSON 문자열로 저장된 경우
         if isinstance(raw, str):
             try:
                 data = json.loads(raw)
@@ -32,7 +34,7 @@ class ArtistItemMapper:
                     spotify_id=a.spotify_id,
                     cover_url=a.photo_url,
                     genres=ArtistItemMapper._normalize_genres(getattr(a, "genres", None)),
-                    followers=getattr(a, "followers", None),
+                    followers_count=getattr(a, "followers", None),  # ✅ schema 필드명 맞춤
                     popularity=getattr(a, "popularity", None),
                     spotify_url=spotify_url,
                 )

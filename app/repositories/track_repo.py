@@ -1,8 +1,10 @@
-# app/repositories/track_repo.py
-from sqlalchemy.orm import Session
+from __future__ import annotations
+
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select
 from typing import Iterable, List
-from app.domain.models import Track, track_artists_table
+
+from app.domain.models import Track, Album
 from app.repositories.artist_repo import ArtistRepository
 
 
@@ -17,6 +19,21 @@ class TrackRepository:
             .scalars()
             .all()
         )
+
+    # ✅ 추가: title 기반 트랙 검색(DB)
+    def search_by_title(self, q: str, limit: int, offset: int) -> List[Track]:
+        stmt = (
+            select(Track)
+            .options(
+                selectinload(Track.album).selectinload(Album.artists),  # album_title/cover + 대표 artist용
+                selectinload(Track.artists),                            # track artist 우선
+            )
+            .where(Track.title.ilike(f"%{q}%"))
+            .order_by(Track.views.desc(), Track.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        return list(self.db.execute(stmt).scalars().all())
 
     def upsert_tracks_with_artists_db_only(
         self,

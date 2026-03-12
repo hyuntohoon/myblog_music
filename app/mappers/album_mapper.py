@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 from app.domain.schemas import AlbumItem
+
 
 class AlbumItemMapper:
     @staticmethod
