@@ -85,9 +85,8 @@ CREATE TABLE artists (
   spotify_url TEXT,
   views INT NOT NULL DEFAULT 0,
   ext_refs JSONB NOT NULL DEFAULT '{}'::jsonb,
-  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
   CONSTRAINT chk_artists_views_nonneg CHECK (views >= 0)
-);
 );
 
 CREATE TABLE albums (
