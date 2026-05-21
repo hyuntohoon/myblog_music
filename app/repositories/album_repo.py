@@ -1,8 +1,7 @@
-# app/repositories/album_repo.py
-from typing import Optional, List, Iterable, Tuple, Dict, Iterable, Set
+import time
+from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
-from typing import Callable, Tuple, List, Dict
 from sqlalchemy.sql.elements import BinaryExpression
 from app.domain.models import Album, Artist, album_artists_table
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -124,9 +123,6 @@ class AlbumRepository:
             if str(al_id) not in result:
                 result[str(al_id)] = (ar_name, ar_spid)
         return result
-    
-    import time
-    from typing import Iterable, List, Set
 
     def get_existing_spotify_ids(self, ids: Iterable[str]) -> Set[str]:
         ids_list: List[str] = [i for i in ids if i]
@@ -231,7 +227,3 @@ class AlbumRepository:
             limit=limit,
             offset=offset,
         )
-    
-    def get_by_spotify_id(self, spotify_id: str) -> Album | None:
-        stmt = select(Album).where(Album.spotify_id == spotify_id)
-        return self.db.execute(stmt).scalar_one_or_none()

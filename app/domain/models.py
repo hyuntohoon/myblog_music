@@ -194,7 +194,7 @@ class Track(Base):
     title: Mapped[str] = mapped_column(Text, nullable=False)
     track_no: Mapped[Optional[int]] = mapped_column(Integer)
     duration_sec: Mapped[Optional[int]] = mapped_column(Integer)
-    spotify_id: Mapped[Optional[str]] = mapped_column(Text)
+    spotify_id: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
 
     ext_refs: Mapped[Dict] = mapped_column(
         JSONB,
