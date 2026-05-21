@@ -1,5 +1,7 @@
-import time
+import logging
 from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
+
+logger = logging.getLogger(__name__)
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.sql.elements import BinaryExpression
@@ -126,43 +128,13 @@ class AlbumRepository:
 
     def get_existing_spotify_ids(self, ids: Iterable[str]) -> Set[str]:
         ids_list: List[str] = [i for i in ids if i]
-        print(f"[AlbumRepository] get_existing_spotify_ids called with {len(ids_list)} ids")
         if not ids_list:
-            print("[AlbumRepository] empty id list, returning empty set")
             return set()
-
         try:
-            print(f"[AlbumRepository] executing select for first 5 ids: {ids_list[:5]}")
-
-            t0 = time.perf_counter()
-            # 세션에서 커넥션 뽑는 타이밍도 보고 싶으면 이렇게 한 번 강제로 연결
-            print("[AlbumRepository] acquiring DB connection...")
-            conn = self.db.connection()
-            print("[AlbumRepository] DB connection acquired in "
-                f"{time.perf_counter() - t0:.3f}s")
-
-            t1 = time.perf_counter()
             stmt = select(Album.spotify_id).where(Album.spotify_id.in_(ids_list))
-            print("[AlbumRepository] statement built")
-
-            print("[AlbumRepository] executing scalars()...")
-            scalars = self.db.scalars(stmt)
-            t2 = time.perf_counter()
-            print("[AlbumRepository] scalars() returned in "
-                f"{t2 - t1:.3f}s, now calling .all()")
-
-            rows = scalars.all()
-            t3 = time.perf_counter()
-            print("[AlbumRepository] .all() returned in "
-                f"{t3 - t2:.3f}s, total DB time {t3 - t0:.3f}s")
-
-            print(f"[AlbumRepository] query done, fetched {len(rows)} rows")
-            return set(rows)
-
+            return set(self.db.scalars(stmt).all())
         except Exception as e:
-            import traceback
-            print("[AlbumRepository] ERROR during DB query:", repr(e))
-            traceback.print_exc()
+            logger.error("get_existing_spotify_ids failed: %s", e, exc_info=True)
             return set()
 
 

@@ -1,8 +1,11 @@
+import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from typing import Optional, List, Dict
 from app.domain.models import Artist
-import time
+
+logger = logging.getLogger(__name__)
+
 
 class ArtistRepository:
     def __init__(self, db: Session):
@@ -19,9 +22,6 @@ class ArtistRepository:
         ).scalars().first()
 
     def search_by_name(self, q: str, limit: int, offset: int) -> List[Artist]:
-        print(f"[ArtistRepository] search_by_name q={q!r}, limit={limit}, offset={offset}")
-        t0 = time.perf_counter()
-
         stmt = (
             select(Artist)
             .where(Artist.name.ilike(f"%{q}%"))
@@ -33,27 +33,10 @@ class ArtistRepository:
             .limit(limit)
             .offset(offset)
         )
-        print(f"[ArtistRepository] built stmt: {stmt}")
-
         try:
-            t1 = time.perf_counter()
-            result = self.db.execute(stmt)
-            t2 = time.perf_counter()
-            rows = result.scalars().all()
-            t3 = time.perf_counter()
-
-            print(
-                "[ArtistRepository] DB exec took "
-                f"{t2 - t1:.3f}s, scalars().all() took {t3 - t2:.3f}s, "
-                f"total {t3 - t0:.3f}s, rows={len(rows)}"
-            )
-
-            return list(rows)
-
+            return list(self.db.execute(stmt).scalars().all())
         except Exception as e:
-            import traceback
-            print("[ArtistRepository] ERROR during search_by_name:", repr(e))
-            traceback.print_exc()
+            logger.error("search_by_name failed for q=%r: %s", q, e, exc_info=True)
             return []
 
 

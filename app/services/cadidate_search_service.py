@@ -1,5 +1,8 @@
+import logging
 from typing import Any, Dict, List, Optional, Set
 from app.clients.spotify_client import spotify
+
+logger = logging.getLogger(__name__)
 from app.clients.sqs_client import SqsClient
 from app.repositories.album_repo import AlbumRepository
 from sqlalchemy.orm import Session
@@ -54,24 +57,15 @@ class CandidateSearchService:
             out[f"{key}_pagination"] = self._page_info(block)
 
         # 앨범ID 수집 후 SQS 전송 (실패 무시)
-        print("[CandidateSearchService] Collecting album IDs for SQS enqueue")
         try:
             album_ids = self._collect_album_ids(out)
-
-            print(f"[CandidateSearchService] collected {len(album_ids)} album_ids")
-             # 전부 보고 싶으면:
-            print("[CandidateSearchService] album_ids =", album_ids)
             if album_ids:
                 existing_ids = self.album_repo.get_existing_spotify_ids(album_ids)
                 new_ids = [id_ for id_ in album_ids if id_ not in existing_ids]
-                print(f"[CandidateSearchService] Enqueue {len(new_ids)} new album IDs to SQS")
                 if new_ids:
                     self.sqs.enqueue_album_sync(new_ids, market or self.default_market)
-
         except Exception as e:
-            import traceback
-            print("[SQS ERROR]", e)
-            traceback.print_exc()
+            logger.error("SQS enqueue failed: %s", e, exc_info=True)
 
         return out
 

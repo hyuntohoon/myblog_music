@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-import os
 import json as _json
+import logging
 import uuid
 from functools import lru_cache
 from typing import Iterable, List, Dict
-from app.core.config import settings
 
 import boto3
+from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class SqsClient:
@@ -52,13 +54,6 @@ class SqsClient:
 
         self.is_fifo = self.queue_name.endswith(".fifo")
 
-        print("[SQS INIT]", {
-            "region": self.region,
-            "endpoint_url": self.endpoint_url,
-            "is_local": self.is_local,
-            "queue_name": self.queue_name,
-            "queue_url": self.queue_url,
-        })
     def enqueue_album_sync(self, album_ids: Iterable[str], market: str) -> None:
         """
         앨범 ID들을 '메시지 1개당 최대 20개'로 묶어서 SQS에 전송.
@@ -66,7 +61,6 @@ class SqsClient:
         """
         ids: List[str] = [sid for sid in album_ids if sid]
         if not ids:
-            print("[SQS] No album IDs to enqueue")
             return
 
         GROUP = 20  # 메시지 1개에 담을 앨범ID 최대(Spotify /albums?ids= 한도)
@@ -82,9 +76,6 @@ class SqsClient:
                     separators=(",", ":"), ensure_ascii=False
                 )
                 grouped_bodies.append(body)
-
-            print(f"[SQS] Prepared {len(grouped_bodies)} grouped message(s) "
-                f"(total_ids={len(ids)}, group_size<=20)")
 
             # 2) 메시지 본문들을 SQS 배치(엔트리 10개)로 전송
             for i in range(0, len(grouped_bodies), BATCH):
@@ -102,18 +93,18 @@ class SqsClient:
                         ))
                     entries.append(entry)
 
-                print(f"[SQS] Sending batch ({len(entries)}) to {self.queue_url}")
-                print(f"[SQS] Example message: {entries[0]['MessageBody']}")
                 response = self._client.send_message_batch(
                     QueueUrl=self.queue_url,
                     Entries=entries
                 )
-                print(f"[SQS] Response: {response}")
+                if failed := response.get("Failed"):
+                    logger.warning(
+                        "SQS batch partial failure: %d/%d message(s) failed",
+                        len(failed), len(entries),
+                    )
 
         except Exception as e:
-            import traceback
-            print("[SQS ERROR]", e)
-            traceback.print_exc()
+            logger.error("enqueue_album_sync failed: %s", e, exc_info=True)
 
 
 @lru_cache(maxsize=1)
