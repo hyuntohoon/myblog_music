@@ -9,7 +9,7 @@ from app.domain.schemas import SearchResult, UnifiedSearchResult
 from app.services.search_service import SearchService as DBSearchService
 
 from app.clients.sqs_client import SqsClient
-from app.services.cadidate_search_service import CandidateSearchService
+from app.services.candidate_search_service import CandidateSearchService
 
 router = APIRouter()
 
