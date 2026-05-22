@@ -46,6 +46,7 @@ def awslocal_purge_all(queue_url: str):
             awslocal_delete(queue_url, m["ReceiptHandle"])
 
 # ---- test ----
+@pytest.mark.integration
 def test_candidates_enqueues_album_ids(monkeypatch):
     # 0) env 확정
     monkeypatch.setenv("AWS_REGION", "us-east-1")
