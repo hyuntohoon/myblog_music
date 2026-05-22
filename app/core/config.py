@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     SPOTIFY_API_BASE: str = "https://api.spotify.com/v1"
     SPOTIFY_DEFAULT_MARKET: str = "KR"
 
+    # Cognito (auth for /candidates)
+    COGNITO_REGION: str = "ap-northeast-2"
+    COGNITO_USER_POOL_ID: str = ""   # required in prod; empty = auth bypassed in local/dev
+
     # AWS / SQS
     AWS_DEFAULT_REGION: str = "ap-northeast-2"
     LOCALSTACK_ENDPOINT: str | None = None        # local이면 http://localhost:4566

@@ -9,6 +9,7 @@ from app.domain.schemas import SearchResult, UnifiedSearchResult
 from app.services.search_service import SearchService as DBSearchService
 
 from app.clients.sqs_client import SqsClient
+from app.core.auth import require_cognito_token
 from app.services.cadidate_search_service import CandidateSearchService
 
 router = APIRouter()
@@ -53,6 +54,7 @@ def search_candidates(
     offset: int = Query(0, ge=0, le=1000),
     db: Session = Depends(get_db),
     include_external: Optional[str] = Query(None, description='선택값: "audio"'),
+    _claims: dict = Depends(require_cognito_token),
 ):
     if include_external not in (None, "audio"):
         raise HTTPException(status_code=400, detail='include_external must be "audio" or omitted')
