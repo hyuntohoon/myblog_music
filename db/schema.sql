@@ -1,3 +1,7 @@
+-- DERIVED from docs/contracts/schema.sql (myblog-workspace repo).
+-- Do not edit here first — update the canonical file, then sync this copy.
+-- Last synced: 2026-05-23
+
 -- ========== EXTENSIONS ==========
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
@@ -79,6 +83,7 @@ CREATE TABLE artists (
   name TEXT NOT NULL,
   spotify_id TEXT NOT NULL UNIQUE,
   genres JSONB NOT NULL DEFAULT '[]'::jsonb,
+  aliases JSONB NOT NULL DEFAULT '[]'::jsonb,
   photo_url TEXT,
   popularity INTEGER,
   followers BIGINT,
