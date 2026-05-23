@@ -76,8 +76,8 @@ Resources:
             ApiId: !Ref HttpApi
             PayloadFormatVersion: "2.0"
       VpcConfig:
-        SubnetIds: !Ref SubnetIds
-        SecurityGroupIds: !Ref SecurityGroupIds
+        SubnetIds: !Split [",", !Ref SubnetIds]
+        SecurityGroupIds: !Split [",", !Ref SecurityGroupIds]
       Policies:
         - AWSLambdaBasicExecutionRole
         - AWSXrayWriteOnlyAccess
