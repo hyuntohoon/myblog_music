@@ -1,0 +1,92 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Music catalog API on Lambda (FastAPI + Mangum)
+
+Parameters:
+  FrontOrigin:
+    Type: String
+    Default: https://www.ratemymusic.blog
+
+  SecretsArn:
+    Type: String
+    Default: ""
+    # JSON keys: DATABASE_URL, SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET
+
+  SqsQueueUrl:
+    Type: String
+    Default: ""
+    # Album sync queue URL (prod: https://sqs.ap-northeast-2.amazonaws.com/338183196042/blogSQS)
+
+  CognitoUserPoolId:
+    Type: String
+    Default: ""
+    # Cognito User Pool ID for /candidates auth (prod: ap-northeast-2_54vEJKEU5); empty = auth bypassed
+
+  LogRetentionInDays:
+    Type: Number
+    Default: 14
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Architectures: [arm64]
+    Timeout: 15
+    MemorySize: 512
+    Tracing: Active
+    Environment:
+      Variables:
+        ENV: prod
+        SQS_QUEUE_URL: !Ref SqsQueueUrl
+        COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
+        SECRETS_ARN: !Ref SecretsArn
+
+Resources:
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowOrigins:
+          - !Ref FrontOrigin
+        AllowHeaders:
+          - Content-Type
+          - Authorization
+        AllowMethods:
+          - GET
+          - POST
+          - OPTIONS
+        MaxAge: 600
+
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: app.main.handler
+      Events:
+        AnyRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            PayloadFormatVersion: "2.0"
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - AWSXrayWriteOnlyAccess
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action: ["secretsmanager:GetSecretValue"]
+              Resource: !Ref SecretsArn
+            - Effect: Allow
+              Action: ["sqs:SendMessage", "sqs:GetQueueUrl"]
+              Resource: "*"
+              # Scope to specific queue ARN once stable
+
+  ApiFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${ApiFunction}"
+      RetentionInDays: !Ref LogRetentionInDays
+
+Outputs:
+  ApiEndpoint:
+    Description: Music API Invoke URL
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"

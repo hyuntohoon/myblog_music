@@ -37,21 +37,22 @@ jobs:
 
       - name: Build zip
         run: |
-          mkdir -p lambda_build
-          pip install -r requirements.txt -t lambda_build --platform manylinux2014_aarch64 --only-binary=:all:
-          cp -r app lambda_build/
-          find lambda_build -name "__pycache__" -type d -exec rm -rf {} +
-          find lambda_build -name "*.pyc" -delete
-          cd lambda_build && zip -r ../lambda_bundle.zip . && cd -
-          ls -lh lambda_bundle.zip
+          mkdir -p build
+          pip install -r requirements.txt -t build --platform manylinux2014_aarch64 --only-binary=:all:
+          cp -r app build/
+          find build -name "__pycache__" -type d -exec rm -rf {} +
+          find build -name "*.pyc" -delete
+          cd build && zip -r ../bundle.zip . && cd -
+          ls -lh bundle.zip
 
       - name: Deploy to Lambda
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: ap-northeast-2
+          FUNCTION_NAME: ${{ vars.LAMBDA_FUNCTION_NAME || 'musicApi' }}
         run: |
           aws lambda update-function-code \
-            --function-name musicApi \
-            --zip-file fileb://lambda_bundle.zip \
+            --function-name "$FUNCTION_NAME" \
+            --zip-file fileb://bundle.zip \
             --architectures arm64
