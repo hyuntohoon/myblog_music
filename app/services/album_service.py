@@ -28,6 +28,7 @@ class AlbumService:
                 cover_url=al.cover_url,
                 album_type=al.album_type,
                 spotify_id=al.spotify_id,
+                external_url=(al.ext_refs or {}).get("spotify_url"),
             ),
             artists=[
                 ArtistOut(id=str(a.id), name=a.name, spotify_id=a.spotify_id)
