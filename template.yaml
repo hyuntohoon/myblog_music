@@ -15,20 +15,12 @@ Parameters:
   SqsQueueUrl:
     Type: String
     Default: ""
-    # Album sync queue URL (used by enqueue_album_sync)
+    # Album sync queue URL (prod: https://sqs.ap-northeast-2.amazonaws.com/338183196042/blogSQS)
 
   CognitoUserPoolId:
     Type: String
     Default: ""
-    # Cognito User Pool ID for /candidates auth; empty = auth bypassed
-
-  SubnetIds:
-    Type: CommaDelimitedList
-    Default: ""
-
-  SecurityGroupIds:
-    Type: CommaDelimitedList
-    Default: ""
+    # Cognito User Pool ID for /candidates auth (prod: ap-northeast-2_54vEJKEU5); empty = auth bypassed
 
   LogRetentionInDays:
     Type: Number
@@ -75,9 +67,6 @@ Resources:
           Properties:
             ApiId: !Ref HttpApi
             PayloadFormatVersion: "2.0"
-      VpcConfig:
-        SubnetIds: !Split [",", !Ref SubnetIds]
-        SecurityGroupIds: !Split [",", !Ref SecurityGroupIds]
       Policies:
         - AWSLambdaBasicExecutionRole
         - AWSXrayWriteOnlyAccess
