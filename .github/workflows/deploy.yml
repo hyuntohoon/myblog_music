@@ -18,7 +18,10 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt -r requirements-test.txt
+        run: pip install -r requirements.txt -r requirements-test.txt pyright
+
+      - name: Type check (pyright)
+        run: pyright app/
 
       - name: Run unit tests
         run: pytest -m "not integration"
@@ -49,9 +52,9 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: ap-northeast-2
-          FUNCTION_NAME: ${{ vars.LAMBDA_FUNCTION_NAME || 'musicApi' }}
+          FUNCTION_NAME: ${{ vars.LAMBDA_FUNCTION_NAME }}
         run: |
           aws lambda update-function-code \
-            --function-name "$FUNCTION_NAME" \
+            --function-name "${FUNCTION_NAME:-musicApi}" \
             --zip-file fileb://bundle.zip \
             --architectures arm64
