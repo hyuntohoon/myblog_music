@@ -5,7 +5,7 @@ FastAPI music metadata service deployed as AWS Lambda via Mangum. Provides album
 ## Stack
 
 - **Runtime**: Python 3.12, FastAPI, Mangum (Lambda adapter)
-- **DB**: PostgreSQL via SQLAlchemy 2 + psycopg3
+- **DB**: PostgreSQL via SQLAlchemy 2 + psycopg3; ORM models from `myblog-shared-db` package (`myblog_shared_db.models`)
 - **External**: Spotify Web API (via `app/clients/spotify_client.py`)
 - **Queue**: AWS SQS producer (via `app/clients/sqs_client.py`)
 - **Deploy**: `build.sh` → zip
@@ -20,7 +20,7 @@ app/
 ├── clients/
 │   ├── spotify_client.py ← Spotify API wrapper
 │   └── sqs_client.py     ← SQS producer (enqueue_album_sync)
-├── domain/models.py     ← SQLAlchemy ORM models
+├── domain/schemas.py    ← Pydantic response schemas (local)
 ├── repositories/        ← DB access layer
 ├── services/            ← Business logic
 ├── mappers/             ← Domain ↔ API response mapping
