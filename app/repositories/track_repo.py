@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select
 from typing import Iterable, List
 
-from app.domain.models import Track, Album
+from myblog_shared_db.models import Track, Album
 from app.repositories.artist_repo import ArtistRepository
 
 
