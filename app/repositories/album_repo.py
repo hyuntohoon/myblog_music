@@ -5,7 +5,7 @@ logger = logging.getLogger(__name__)
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.sql.elements import BinaryExpression
-from app.domain.models import Album, Artist, album_artists_table
+from myblog_shared_db.models import Album, Artist, album_artists_table
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 class AlbumRepository:

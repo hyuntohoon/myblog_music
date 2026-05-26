@@ -2,7 +2,7 @@ import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from typing import Optional, List, Dict
-from app.domain.models import Artist
+from myblog_shared_db.models import Artist
 
 logger = logging.getLogger(__name__)
 
