@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 
 from app.core.db import get_db
-from app.domain.schemas import SearchResult, UnifiedSearchResult
+from app.domain.schemas import CandidateSearchResult, SearchResult, UnifiedSearchResult
 from app.services.search_service import SearchService as DBSearchService
 
 from app.clients.sqs_client import SqsClient
@@ -56,7 +56,12 @@ def basic_search(
 # -------------------------------
 # 2) 후보 검색 (+ 앨범 동기화 enqueue) - 기존 유지
 # -------------------------------
-@router.get("/candidates", summary="Spotify 후보 검색(읽기 전용 + 앨범 동기화 enqueue)")
+@router.get(
+    "/candidates",
+    response_model=CandidateSearchResult,
+    response_model_exclude_none=True,
+    summary="Spotify 후보 검색(읽기 전용 + 앨범 동기화 enqueue)",
+)
 def search_candidates(
     q: str = Query(..., description="Spotify 검색 쿼리"),
     type: str = Query("album,artist,track", description='허용: "album,artist,track" 중 조합'),

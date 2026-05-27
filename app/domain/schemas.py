@@ -100,6 +100,65 @@ class AlbumDetail(BaseModel):
     meta: dict = Field(default_factory=dict)
 
 
+# ------- 후보 검색(Spotify-passthrough) 응답 -------
+# 주의: 후보 응답 아이템은 DB 검색용 AlbumItem/ArtistItem과 별개다.
+# DB가 아직 모르는 항목이라 `id` (DB UUID)가 없고 `spotify_id`만 있다.
+class CandidatePagination(BaseModel):
+    total: Optional[int] = None
+    limit: Optional[int] = None
+    offset: Optional[int] = None
+    next: Optional[str] = None
+    previous: Optional[str] = None
+    href: Optional[str] = None
+
+
+class CandidateAlbumItem(BaseModel):
+    spotify_id: Optional[str] = None
+    title: Optional[str] = None
+    album_type: Optional[str] = None
+    release_date: Optional[str] = None
+    cover_url: Optional[str] = None
+    artist_name: Optional[str] = None
+    artist_spotify_id: Optional[str] = None
+    external_url: Optional[str] = None
+
+
+class CandidateArtistItem(BaseModel):
+    spotify_id: Optional[str] = None
+    name: Optional[str] = None
+    genres: List[str] = Field(default_factory=list)
+    photo_url: Optional[str] = None
+    external_url: Optional[str] = None
+
+
+class CandidateTrackAlbumRef(BaseModel):
+    spotify_id: Optional[str] = None
+    title: Optional[str] = None
+    release_date: Optional[str] = None
+    cover_url: Optional[str] = None
+
+
+class CandidateTrackItem(BaseModel):
+    spotify_id: Optional[str] = None
+    title: Optional[str] = None
+    duration_ms: Optional[int] = None
+    track_number: Optional[int] = None
+    album: Optional[CandidateTrackAlbumRef] = None
+    artist_name: Optional[str] = None
+    artist_spotify_id: Optional[str] = None
+    external_url: Optional[str] = None
+
+
+# 요청한 type에 포함되지 않은 섹션은 응답에서 생략됨 (라우터가 response_model_exclude_none=True 적용).
+class CandidateSearchResult(BaseModel):
+    albums: Optional[List[CandidateAlbumItem]] = None
+    artists: Optional[List[CandidateArtistItem]] = None
+    tracks: Optional[List[CandidateTrackItem]] = None
+    albums_pagination: Optional[CandidatePagination] = None
+    artists_pagination: Optional[CandidatePagination] = None
+    tracks_pagination: Optional[CandidatePagination] = None
+
+
 # ------- 워커/동기화용 입력 -------
 class SyncAlbumIn(BaseModel):
     spotify_album_id: str
