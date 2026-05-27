@@ -83,6 +83,18 @@ pytest
 
 Test config in `pytest.ini`. Integration tests require a running PostgreSQL instance.
 
+## Contract
+
+After any FastAPI route or Pydantic model change, regenerate and commit the OpenAPI spec:
+
+```bash
+python scripts/export_openapi.py
+# or
+make export-openapi
+```
+
+The committed `openapi.json` in the repo root is the contract consumed by the workspace merge tool (ARCH-12). CI will fail if this file is out of date.
+
 ## Verification
 
 ```bash
