@@ -1111,6 +1111,18 @@
             }
           },
           {
+            "description": "\uac80\uc0c9 \ub300\uc0c1 (\ucf64\ub9c8 \uc870\ud569 \ud5c8\uc6a9): \"album\", \"artist\", \"track\"",
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "default": "album,artist,track",
+              "description": "\uac80\uc0c9 \ub300\uc0c1 (\ucf64\ub9c8 \uc870\ud569 \ud5c8\uc6a9): \"album\", \"artist\", \"track\"",
+              "title": "Type",
+              "type": "string"
+            }
+          },
+          {
             "in": "query",
             "name": "limit",
             "required": false,

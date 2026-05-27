@@ -11,19 +11,30 @@ from app.services.search_service import SearchService as DBSearchService
 from app.clients.sqs_client import SqsClient
 from app.core.auth import require_cognito_token
 from app.services.cadidate_search_service import CandidateSearchService
+from app.services.search_service import ALLOWED_TYPES
 
 router = APIRouter()
 
 
-# ✅ 추가: 통합 검색(DB-first) - 모드 없이 1번 호출로 3섹션
+# 통합 검색(DB-first) — type 필터 옵션 (default: 전체)
 @router.get("/unified", response_model=UnifiedSearchResult, summary="통합 검색(DB-first)")
 def unified_search(
     q: str = Query(..., min_length=1, description="검색어"),
+    type: str = Query(
+        "album,artist,track",
+        description='검색 대상 (콤마 조합 허용): "album", "artist", "track"',
+    ),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return DBSearchService(db).unified_search(q=q, limit=limit, offset=offset)
+    types = {t.strip().lower() for t in type.split(",") if t.strip()}
+    invalid = types - ALLOWED_TYPES
+    if invalid:
+        raise HTTPException(status_code=400, detail=f"Invalid types: {sorted(invalid)}")
+    if not types:
+        raise HTTPException(status_code=400, detail="type must not be empty")
+    return DBSearchService(db).unified_search(q=q, types=types, limit=limit, offset=offset)
 
 
 # -------------------------------

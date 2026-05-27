@@ -1,6 +1,6 @@
 import logging
 from sqlalchemy.orm import Session
-from sqlalchemy import select
+from sqlalchemy import or_, select, text
 from typing import Optional, List, Dict
 from myblog_shared_db.models import Artist
 
@@ -22,9 +22,16 @@ class ArtistRepository:
         ).scalars().first()
 
     def search_by_name(self, q: str, limit: int, offset: int) -> List[Artist]:
+        # Match on Artist.name (substring, case-insensitive) OR any element of the
+        # MusicBrainz-populated `aliases` JSONB array. Aliases let users find
+        # Korean transliterations and alternate spellings.
+        pat = f"%{q}%"
+        alias_match = text(
+            "EXISTS (SELECT 1 FROM jsonb_array_elements_text(artists.aliases) AS e WHERE e ILIKE :alias_pat)"
+        ).bindparams(alias_pat=pat)
         stmt = (
             select(Artist)
-            .where(Artist.name.ilike(f"%{q}%"))
+            .where(or_(Artist.name.ilike(pat), alias_match))
             .order_by(
                 Artist.popularity.desc().nullslast(),
                 Artist.followers.desc().nullslast(),

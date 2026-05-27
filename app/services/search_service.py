@@ -35,11 +35,20 @@ class SearchService:
         handler = handlers.get(mode, self._handle_album_search)
         return handler(q, limit, offset)
 
-    # ✅ 통합 검색(DB): artists + albums + tracks 를 한 번에
-    def unified_search(self, *, q: str, limit: int, offset: int) -> UnifiedSearchResult:
-        artists = self.artist_repo.search_by_name(q, limit, offset)
-        albums = self.album_repo.search_by_title(q, limit, offset)
-        tracks = self.track_repo.search_by_title(q, limit, offset)
+    # 통합 검색(DB): artists + albums + tracks. `types` 인자로 일부만 조회 가능 (default 전체).
+    def unified_search(
+        self,
+        *,
+        q: str,
+        limit: int,
+        offset: int,
+        types: Set[str] | None = None,
+    ) -> UnifiedSearchResult:
+        wanted = types if types is not None else ALLOWED_TYPES
+
+        artists = self.artist_repo.search_by_name(q, limit, offset) if "artist" in wanted else []
+        albums = self.album_repo.search_by_title(q, limit, offset) if "album" in wanted else []
+        tracks = self.track_repo.search_by_title(q, limit, offset) if "track" in wanted else []
 
         primary_map = self._primary_map_for(albums)
 
