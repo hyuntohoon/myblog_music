@@ -118,3 +118,85 @@ class TestAlbumServiceExternalUrl:
         result = svc.get_album_detail(str(al.id))
 
         assert result.album.external_url is None
+
+
+class TestCandidateSearchResultSchema:
+    """PR-12: /api/music/search/candidates response_model — front consumes typed shape."""
+
+    def test_parses_full_service_output(self):
+        from app.domain.schemas import CandidateSearchResult
+
+        # Mirrors what CandidateSearchService.search_candidates returns when
+        # all 3 types are requested + a non-empty Spotify response.
+        raw = {
+            "albums": [{
+                "spotify_id": "alb_111",
+                "title": "Mock Album",
+                "album_type": "album",
+                "release_date": "2022-01-01",
+                "cover_url": "http://img",
+                "artist_name": "Mock Artist",
+                "artist_spotify_id": "art_1",
+                "external_url": "http://sp/alb_111",
+            }],
+            "albums_pagination": {"total": 1, "limit": 10, "offset": 0,
+                                  "next": None, "previous": None, "href": None},
+            "artists": [{
+                "spotify_id": "art_1",
+                "name": "Mock Artist",
+                "genres": [],
+                "photo_url": None,
+                "external_url": "http://sp/art_1",
+            }],
+            "artists_pagination": {"total": 1, "limit": 10, "offset": 0,
+                                   "next": None, "previous": None, "href": None},
+            "tracks": [{
+                "spotify_id": "trk_1",
+                "title": "Song A",
+                "duration_ms": 100000,
+                "track_number": 1,
+                "album": {
+                    "spotify_id": "alb_111",
+                    "title": "Mock Album",
+                    "release_date": "2022-01-01",
+                    "cover_url": "http://img",
+                },
+                "artist_name": "Mock Artist",
+                "artist_spotify_id": "art_1",
+                "external_url": "http://sp/trk_1",
+            }],
+            "tracks_pagination": {"total": 1, "limit": 10, "offset": 0,
+                                  "next": None, "previous": None, "href": None},
+        }
+
+        result = CandidateSearchResult.model_validate(raw)
+
+        assert result.albums and result.albums[0].spotify_id == "alb_111"
+        assert result.albums[0].artist_spotify_id == "art_1"
+        assert result.artists and result.artists[0].name == "Mock Artist"
+        assert result.tracks and result.tracks[0].album is not None
+        assert result.tracks[0].album.spotify_id == "alb_111"
+        assert result.albums_pagination and result.albums_pagination.total == 1
+
+    def test_partial_response_only_requested_types_present(self):
+        """Service skips empty/unrequested sections; model accepts subset."""
+        from app.domain.schemas import CandidateSearchResult
+
+        # Only albums requested → no artists/tracks keys at all.
+        result = CandidateSearchResult.model_validate({"albums": []})
+
+        assert result.albums == []
+        assert result.artists is None
+        assert result.tracks is None
+
+    def test_response_model_exclude_none_omits_unused_sections(self):
+        """The route uses response_model_exclude_none=True so wire format
+        matches today's behaviour (no `null` keys for skipped types)."""
+        from app.domain.schemas import CandidateSearchResult
+
+        result = CandidateSearchResult(albums=[])
+        dumped = result.model_dump(exclude_none=True)
+
+        assert "artists" not in dumped
+        assert "tracks" not in dumped
+        assert dumped == {"albums": []}
