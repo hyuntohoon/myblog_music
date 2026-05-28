@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 
 from app.core.db import get_db
-from app.domain.schemas import CandidateSearchResult, SearchResult, UnifiedSearchResult
+from app.domain.schemas import CandidateSearchResult, UnifiedSearchResult
 from app.services.search_service import SearchService as DBSearchService
 
 from app.clients.sqs_client import SqsClient
@@ -38,23 +38,7 @@ def unified_search(
 
 
 # -------------------------------
-# 1) 기본 검색(DB 우선) - 기존 서비스 그대로 사용(호환 유지)
-# -------------------------------
-@router.get("", response_model=SearchResult, summary="기본 검색(DB)")
-def basic_search(
-    mode: str = Query(..., description='검색 모드: "artist" 또는 "album"'),
-    q: str = Query(..., min_length=1, description="검색어"),
-    limit: int = Query(20, ge=1, le=100, description="페이지 크기(1~100)"),
-    offset: int = Query(0, ge=0, description="오프셋(0부터)"),
-    db: Session = Depends(get_db),
-):
-    if mode not in {"artist", "album"}:
-        raise HTTPException(status_code=400, detail='mode must be "artist" or "album"')
-    return DBSearchService(db).basic_search(mode=mode, q=q, limit=limit, offset=offset)
-
-
-# -------------------------------
-# 2) 후보 검색 (+ 앨범 동기화 enqueue) - 기존 유지
+# 후보 검색 (+ 앨범 동기화 enqueue) - 기존 유지
 # -------------------------------
 @router.get(
     "/candidates",
