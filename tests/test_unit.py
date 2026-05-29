@@ -58,7 +58,7 @@ class TestCognitoAuthBypass:
 class TestAlbumServiceExternalUrl:
     """AlbumOut.external_url must be populated from Album.ext_refs['spotify_url']."""
 
-    def _make_album(self, ext_refs: dict):
+    def _make_album(self, ext_refs):
         from datetime import date
         al = MagicMock()
         al.id = uuid.uuid4()
@@ -68,6 +68,7 @@ class TestAlbumServiceExternalUrl:
         al.album_type = "album"
         al.spotify_id = "test_spotify_id"
         al.ext_refs = ext_refs
+        al.label = None
         return al
 
     def test_external_url_populated_from_ext_refs(self):
@@ -118,6 +119,91 @@ class TestAlbumServiceExternalUrl:
         result = svc.get_album_detail(str(al.id))
 
         assert result.album.external_url is None
+
+
+class TestAlbumServiceWriteUxBundle:
+    """FEAT-write-ux-bundle PR-2: AlbumOut.label + TrackOut.feat_artist_names."""
+
+    def _make_album(self, *, label=None, ext_refs=None):
+        from datetime import date
+        al = MagicMock()
+        al.id = uuid.uuid4()
+        al.title = "Album"
+        al.release_date = date(2020, 1, 1)
+        al.cover_url = None
+        al.album_type = "album"
+        al.spotify_id = "alb_sp"
+        al.ext_refs = ext_refs or {}
+        al.label = label
+        return al
+
+    def _make_artist(self, name: str):
+        ar = MagicMock()
+        ar.id = uuid.uuid4()
+        ar.name = name
+        ar.spotify_id = f"sp_{name}"
+        return ar
+
+    def _make_track(self, *, title: str, track_no: int, artists: list):
+        t = MagicMock()
+        t.id = uuid.uuid4()
+        t.title = title
+        t.track_no = track_no
+        t.duration_sec = 200
+        t.spotify_id = f"sp_trk_{track_no}"
+        t.artists = artists
+        return t
+
+    def _svc(self, *, album, album_artists, tracks):
+        from app.services.album_service import AlbumService
+        mock_db = MagicMock()
+        svc = AlbumService(mock_db)
+        svc.albums = MagicMock()
+        svc.artists = MagicMock()
+        svc.tracks = MagicMock()
+        svc.albums.get_with_artists.return_value = (album, album_artists)
+        svc.tracks.get_by_album.return_value = tracks
+        return svc
+
+    def test_album_label_populated(self):
+        al = self._make_album(label="Parlophone")
+        svc = self._svc(album=al, album_artists=[], tracks=[])
+        result = svc.get_album_detail(str(al.id))
+        assert result.album.label == "Parlophone"
+
+    def test_album_label_none(self):
+        al = self._make_album(label=None)
+        svc = self._svc(album=al, album_artists=[], tracks=[])
+        result = svc.get_album_detail(str(al.id))
+        assert result.album.label is None
+
+    def test_feat_excludes_album_primary_artists(self):
+        primary = self._make_artist("Primary")
+        guest = self._make_artist("Guest")
+        al = self._make_album()
+        t = self._make_track(title="Song", track_no=1, artists=[primary, guest])
+        svc = self._svc(album=al, album_artists=[primary], tracks=[t])
+        result = svc.get_album_detail(str(al.id))
+        assert result.tracks[0].feat_artist_names == ["Guest"]
+
+    def test_feat_sorted_and_dedupes_album_artists_only(self):
+        a1 = self._make_artist("Alpha")
+        a2 = self._make_artist("Bravo")
+        zulu = self._make_artist("Zulu")
+        delta = self._make_artist("Delta")
+        al = self._make_album()
+        t = self._make_track(title="Song", track_no=1, artists=[zulu, delta, a1, a2])
+        svc = self._svc(album=al, album_artists=[a1, a2], tracks=[t])
+        result = svc.get_album_detail(str(al.id))
+        assert result.tracks[0].feat_artist_names == ["Delta", "Zulu"]
+
+    def test_feat_empty_when_no_guest(self):
+        primary = self._make_artist("Primary")
+        al = self._make_album()
+        t = self._make_track(title="Song", track_no=1, artists=[primary])
+        svc = self._svc(album=al, album_artists=[primary], tracks=[t])
+        result = svc.get_album_detail(str(al.id))
+        assert result.tracks[0].feat_artist_names == []
 
 
 class TestCandidateSearchResultSchema:

@@ -19,6 +19,7 @@ class AlbumService:
             raise HTTPException(status_code=404, detail="album not found in DB")
 
         tracks = self.tracks.get_by_album(al.id)
+        album_artist_ids = {a.id for a in artists}
 
         return AlbumDetail(
             album=AlbumOut(
@@ -29,6 +30,7 @@ class AlbumService:
                 album_type=al.album_type,
                 spotify_id=al.spotify_id,
                 external_url=(al.ext_refs or {}).get("spotify_url"),
+                label=al.label,
             ),
             artists=[
                 ArtistOut(id=str(a.id), name=a.name, spotify_id=a.spotify_id)
@@ -41,6 +43,10 @@ class AlbumService:
                     track_no=t.track_no,
                     duration_sec=t.duration_sec,
                     spotify_id=t.spotify_id,
+                    feat_artist_names=sorted(
+                        ta.name for ta in (t.artists or [])
+                        if ta.id not in album_artist_ids and ta.name
+                    ),
                 )
                 for t in tracks
             ],
