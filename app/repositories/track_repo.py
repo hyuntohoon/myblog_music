@@ -15,7 +15,12 @@ class TrackRepository:
 
     def get_by_album(self, album_id: str) -> List[Track]:
         return list(
-            self.db.execute(select(Track).where(Track.album_id == album_id))
+            self.db.execute(
+                select(Track)
+                .options(selectinload(Track.artists))
+                .where(Track.album_id == album_id)
+                .order_by(Track.track_no.asc().nullslast())
+            )
             .scalars()
             .all()
         )

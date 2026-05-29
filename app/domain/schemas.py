@@ -70,6 +70,7 @@ class TrackOut(BaseModel):
     track_no: Optional[int] = None
     duration_sec: Optional[int] = None
     spotify_id: Optional[str] = None
+    feat_artist_names: List[str] = Field(default_factory=list)
 
 
 class ArtistOut(BaseModel):
@@ -91,6 +92,7 @@ class AlbumOut(BaseModel):
     album_type: Optional[str] = None
     spotify_id: Optional[str] = None
     external_url: Optional[str] = None
+    label: Optional[str] = None
 
 
 class AlbumDetail(BaseModel):
