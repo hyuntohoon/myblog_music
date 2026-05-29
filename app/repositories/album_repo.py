@@ -47,6 +47,19 @@ class AlbumRepository:
         )
         return list(self.db.execute(stmt).scalars().all())
 
+    # BUG-19: 1-hop expansion — albums for a single matched artist, eager-loaded.
+    # Per-artist call (not bulk) so each artist gets a bounded LIMIT individually.
+    def list_by_artist_id_simple(self, artist_id, limit: int = 50) -> List[Album]:
+        stmt = (
+            select(Album)
+            .options(selectinload(Album.artists))
+            .join(album_artists_table, album_artists_table.c.album_id == Album.id)
+            .where(album_artists_table.c.artist_id == artist_id)
+            .order_by(Album.release_date.desc().nullslast())
+            .limit(limit)
+        )
+        return list(self.db.execute(stmt).scalars().all())
+
     def upsert_album_min(
         self,
         *,
@@ -112,11 +125,18 @@ class AlbumRepository:
         if not album_ids:
             return {}
 
+        # BUG-19 Q1 (a): stable primary pick across reloads — order by
+        # (popularity DESC NULLS LAST, name ASC) so first-seen row is
+        # deterministic. Matches in-mapper heuristic in track_mapper.
         rows = self.db.execute(
             select(Album.id, Artist.name, Artist.spotify_id)
             .join(album_artists_table, album_artists_table.c.album_id == Album.id)
             .join(Artist, album_artists_table.c.artist_id == Artist.id)
             .where(Album.id.in_(album_ids))
+            .order_by(
+                Artist.popularity.desc().nullslast(),
+                Artist.name.asc(),
+            )
         ).all()
 
         result: Dict[str, Tuple[Optional[str], Optional[str]]] = {}
