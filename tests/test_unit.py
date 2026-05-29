@@ -298,6 +298,291 @@ class TestTrackItemMapperFeatArtistNames:
         assert items[0].feat_artist_names == ["Bravo"]
 
 
+class TestTrackMapperPopularityOrdering:
+    """BUG-19 Q1 (a): primary pick must be deterministic.
+
+    `_sort_artists_by_popularity` orders by (popularity DESC, name ASC), so
+    the most-popular collaborator becomes the primary regardless of the
+    physical row order returned by Postgres (which has no `ORDER BY` on the
+    `track_artists` / `album_artists` relationships).
+    """
+
+    def _make_artist(self, name: str, popularity=None):
+        ar = MagicMock()
+        ar.id = uuid.uuid4()
+        ar.name = name
+        ar.popularity = popularity
+        return ar
+
+    def _make_album(self):
+        from datetime import date
+        al = MagicMock()
+        al.id = uuid.uuid4()
+        al.title = "Album"
+        al.release_date = date(2020, 1, 1)
+        al.cover_url = None
+        al.spotify_id = "alb_sp"
+        al.artists = []
+        return al
+
+    def _make_track(self, *, artists, album):
+        t = MagicMock()
+        t.id = uuid.uuid4()
+        t.title = "Song"
+        t.track_no = 1
+        t.duration_sec = 200
+        t.spotify_id = "trk_sp"
+        t.album_id = album.id
+        t.album = album
+        t.artists = artists
+        return t
+
+    def test_popular_artist_wins_regardless_of_order(self):
+        from app.mappers.track_mapper import TrackItemMapper
+        unpopular = self._make_artist("Aaron", popularity=10)
+        popular = self._make_artist("Zelda", popularity=90)
+        al = self._make_album()
+        t1 = self._make_track(artists=[unpopular, popular], album=al)
+        t2 = self._make_track(artists=[popular, unpopular], album=al)
+        items = TrackItemMapper.to_list([t1, t2])
+        assert items[0].artist_name == "Zelda"
+        assert items[1].artist_name == "Zelda"
+        # primary excluded from feat — feat is the other one regardless of order
+        assert items[0].feat_artist_names == ["Aaron"]
+        assert items[1].feat_artist_names == ["Aaron"]
+
+    def test_null_popularity_falls_back_to_name(self):
+        from app.mappers.track_mapper import TrackItemMapper
+        a = self._make_artist("Bravo", popularity=None)
+        b = self._make_artist("Alpha", popularity=None)
+        al = self._make_album()
+        t = self._make_track(artists=[a, b], album=al)
+        items = TrackItemMapper.to_list([t])
+        # Both null → tie broken by name ASC → Alpha is primary
+        assert items[0].artist_name == "Alpha"
+        assert items[0].feat_artist_names == ["Bravo"]
+
+    def test_numeric_popularity_beats_null_popularity(self):
+        from app.mappers.track_mapper import TrackItemMapper
+        unknown = self._make_artist("Famous", popularity=None)
+        known = self._make_artist("Niche", popularity=5)
+        al = self._make_album()
+        t = self._make_track(artists=[unknown, known], album=al)
+        items = TrackItemMapper.to_list([t])
+        # Numeric popularity (even 5) outranks null
+        assert items[0].artist_name == "Niche"
+        assert items[0].feat_artist_names == ["Famous"]
+
+
+class TestUnifiedSearchExpansion:
+    """BUG-19 Step 1: service-level merge / dedup / path-dependent ranking.
+
+    These exercise the pure orchestration logic in `SearchService.unified_search`
+    using stubbed repos. The real-engine integration test in
+    `tests/integration/test_unified_search_expansion.py` covers query-count
+    boundedness against live Postgres ([[feedback-sa-session-lifecycle-mock-blind]]).
+    """
+
+    def _stub_artist(self, *, name, popularity=50):
+        ar = MagicMock()
+        ar.id = uuid.uuid4()
+        ar.name = name
+        ar.popularity = popularity
+        ar.followers = 1000
+        ar.views = 0
+        ar.spotify_id = f"sp_{name}"
+        ar.photo_url = None
+        ar.spotify_url = None
+        ar.ext_refs = {}
+        ar.genres = []
+        return ar
+
+    def _stub_album(self, *, title, popularity=50, artists=None, release=None):
+        from datetime import date
+        al = MagicMock()
+        al.id = uuid.uuid4()
+        al.title = title
+        al.popularity = popularity
+        al.release_date = release or date(2020, 1, 1)
+        al.cover_url = None
+        al.album_type = "album"
+        al.spotify_id = f"alb_{title}"
+        al.total_tracks = None
+        al.label = None
+        al.ext_refs = {}
+        al.artists = artists or []
+        return al
+
+    def _stub_track(self, *, title, album, artists=None):
+        t = MagicMock()
+        t.id = uuid.uuid4()
+        t.title = title
+        t.track_no = 1
+        t.duration_sec = 200
+        t.spotify_id = f"trk_{title}"
+        t.album_id = album.id
+        t.album = album
+        t.artists = artists or []
+        return t
+
+    def _build_service(self, *, literal_artists, literal_albums, literal_tracks,
+                       expand_artist_albums=None, expand_artist_tracks=None,
+                       expand_album_tracks=None):
+        from app.services.search_service import SearchService
+        svc = SearchService(MagicMock())
+        svc.artist_repo = MagicMock()
+        svc.album_repo = MagicMock()
+        svc.track_repo = MagicMock()
+        svc.artist_repo.search_by_name.return_value = literal_artists
+        svc.album_repo.search_by_title.return_value = literal_albums
+        svc.track_repo.search_by_title.return_value = literal_tracks
+        svc.album_repo.list_by_artist_id_simple.side_effect = (
+            lambda artist_id, limit: (expand_artist_albums or {}).get(artist_id, [])
+        )
+        svc.track_repo.list_by_artist_id.side_effect = (
+            lambda artist_id, limit: (expand_artist_tracks or {}).get(artist_id, [])
+        )
+        svc.track_repo.list_by_album_ids.return_value = expand_album_tracks or []
+        svc.album_repo.get_primary_artist_map.return_value = {}
+        return svc
+
+    def test_artist_match_expands_to_albums_and_tracks(self):
+        ar = self._stub_artist(name="Solo", popularity=80)
+        al = self._stub_album(title="DebutLP", popularity=60, artists=[ar])
+        t = self._stub_track(title="DebutSong", album=al, artists=[ar])
+        svc = self._build_service(
+            literal_artists=[ar],
+            literal_albums=[],
+            literal_tracks=[],
+            expand_artist_albums={ar.id: [al]},
+            expand_artist_tracks={ar.id: [t]},
+        )
+        res = svc.unified_search(q="Solo", limit=20, offset=0)
+        assert len(res.artists) == 1
+        assert res.artists[0].name == "Solo"
+        # Albums + tracks materialised even though they were never literal-matched
+        assert len(res.albums) == 1 and res.albums[0].title == "DebutLP"
+        assert len(res.tracks) == 1 and res.tracks[0].title == "DebutSong"
+
+    def test_album_match_expands_to_tracks_and_pulls_in_artists(self):
+        ar = self._stub_artist(name="BandX", popularity=70)
+        al = self._stub_album(title="MatchedAlbum", popularity=80, artists=[ar])
+        track_in_album = self._stub_track(title="Cut1", album=al, artists=[ar])
+        svc = self._build_service(
+            literal_artists=[],
+            literal_albums=[al],
+            literal_tracks=[],
+            expand_album_tracks=[track_in_album],
+        )
+        res = svc.unified_search(q="MatchedAlbum", limit=20, offset=0)
+        assert len(res.albums) == 1
+        assert len(res.tracks) == 1 and res.tracks[0].title == "Cut1"
+        # album.artists eager-loaded ⇒ feed expansion_artists
+        assert len(res.artists) == 1 and res.artists[0].name == "BandX"
+
+    def test_dedup_retains_literal_path_for_track_ranking(self):
+        """A track that appears both as a literal title match AND via album
+        expansion must rank as literal (similarity-driven), not as expansion
+        (release-date-driven)."""
+        from datetime import date
+        ar = self._stub_artist(name="Artist", popularity=50)
+        # Two albums: matched_album has a literal track; other_album expands via artist match
+        matched_album = self._stub_album(title="MatchedAlbum", artists=[ar])
+        other_album = self._stub_album(
+            title="OtherAlbum", artists=[ar], release=date(2025, 1, 1)
+        )
+        # Track that literal-matches by title:
+        literal_track = self._stub_track(title="MatchedAlbum", album=matched_album, artists=[ar])
+        # Same track id also returned via album expansion (simulates the merge collision)
+        expand_dup = literal_track
+        # Newer expansion-only track (would outrank the literal track by release_date if it weren't literal)
+        newer_expansion_track = self._stub_track(title="NewerCut", album=other_album, artists=[ar])
+        svc = self._build_service(
+            literal_artists=[ar],
+            literal_albums=[matched_album],
+            literal_tracks=[literal_track],
+            expand_album_tracks=[expand_dup],
+            expand_artist_tracks={ar.id: [newer_expansion_track]},
+        )
+        res = svc.unified_search(q="MatchedAlbum", limit=20, offset=0)
+        # Dedup: literal_track appears once
+        ids = [t.id for t in res.tracks]
+        assert len(ids) == len(set(ids)), "track ids must be deduped"
+        # Literal-path track ranks before the (newer) expansion-only track
+        assert res.tracks[0].title == "MatchedAlbum"
+
+    def test_one_hop_only_no_multi_hop_album_fan_out(self):
+        """An album match must not transitively expand into "other albums by
+        the same artist". Only the matched album's tracks + artists surface."""
+        ar = self._stub_artist(name="DeepCatalog", popularity=50)
+        matched_album = self._stub_album(title="MatchedAlbum", artists=[ar])
+        # other_album exists for the artist but must NOT appear (would be 2-hop)
+        other_album = self._stub_album(title="UnrelatedAlbum", artists=[ar])
+        svc = self._build_service(
+            literal_artists=[],
+            literal_albums=[matched_album],
+            literal_tracks=[],
+            # Even if the artist repo happened to be called, we expect it not to be —
+            # so explicit expand maps are empty.
+            expand_artist_albums={ar.id: [other_album]},
+        )
+        res = svc.unified_search(q="MatchedAlbum", limit=20, offset=0)
+        album_titles = {a.title for a in res.albums}
+        assert "MatchedAlbum" in album_titles
+        assert "UnrelatedAlbum" not in album_titles, "2-hop expansion leaked"
+        # And the artist's list_by_artist_id_simple must not have been called:
+        svc.album_repo.list_by_artist_id_simple.assert_not_called()
+
+    def test_per_bucket_offset_overrides_singular_offset(self):
+        ar = self._stub_artist(name="A", popularity=10)
+        svc = self._build_service(
+            literal_artists=[ar],
+            literal_albums=[],
+            literal_tracks=[],
+        )
+        svc.unified_search(
+            q="A", limit=20, offset=5,
+            artist_offset=100, album_offset=None, track_offset=None,
+        )
+        # artist_offset override wins
+        svc.artist_repo.search_by_name.assert_called_with("A", 20, 100)
+        # album/track buckets fall back to singular offset=5
+        svc.album_repo.search_by_title.assert_called_with("A", 20, 5)
+        svc.track_repo.search_by_title.assert_called_with("A", 20, 5)
+
+    def test_type_filter_skips_excluded_buckets(self):
+        ar = self._stub_artist(name="ArtistOnly", popularity=10)
+        svc = self._build_service(
+            literal_artists=[ar],
+            literal_albums=[],
+            literal_tracks=[],
+        )
+        res = svc.unified_search(q="ArtistOnly", limit=20, offset=0, types={"artist"})
+        assert res.albums == []
+        assert res.tracks == []
+        # No expansion fired into excluded buckets
+        svc.album_repo.list_by_artist_id_simple.assert_not_called()
+        svc.track_repo.list_by_artist_id.assert_not_called()
+
+    def test_expansion_only_artists_ranked_by_popularity(self):
+        from datetime import date
+        # Album literal-matches; two artists pulled in via expansion
+        low_pop = self._stub_artist(name="LowPop", popularity=10)
+        high_pop = self._stub_artist(name="HighPop", popularity=90)
+        al = self._stub_album(
+            title="Compilation", popularity=60, artists=[low_pop, high_pop],
+            release=date(2020, 1, 1),
+        )
+        svc = self._build_service(
+            literal_artists=[],
+            literal_albums=[al],
+            literal_tracks=[],
+        )
+        res = svc.unified_search(q="Compilation", limit=20, offset=0)
+        # Both are expansion-only — ranked by popularity DESC
+        assert [a.name for a in res.artists] == ["HighPop", "LowPop"]
+
+
 class TestCandidateSearchResultSchema:
     """PR-12: /api/music/search/candidates response_model — front consumes typed shape."""
 

@@ -1458,14 +1458,73 @@
             }
           },
           {
+            "description": "Fallback offset applied to any bucket without an explicit override.",
             "in": "query",
             "name": "offset",
             "required": false,
             "schema": {
               "default": 0,
+              "description": "Fallback offset applied to any bucket without an explicit override.",
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
+            }
+          },
+          {
+            "description": "Per-bucket offset for the artists slice (overrides `offset`).",
+            "in": "query",
+            "name": "artist_offset",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Per-bucket offset for the artists slice (overrides `offset`).",
+              "title": "Artist Offset"
+            }
+          },
+          {
+            "description": "Per-bucket offset for the albums slice (overrides `offset`).",
+            "in": "query",
+            "name": "album_offset",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Per-bucket offset for the albums slice (overrides `offset`).",
+              "title": "Album Offset"
+            }
+          },
+          {
+            "description": "Per-bucket offset for the tracks slice (overrides `offset`).",
+            "in": "query",
+            "name": "track_offset",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Per-bucket offset for the tracks slice (overrides `offset`).",
+              "title": "Track Offset"
             }
           }
         ],

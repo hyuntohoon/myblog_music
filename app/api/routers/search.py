@@ -25,7 +25,10 @@ def unified_search(
         description='검색 대상 (콤마 조합 허용): "album", "artist", "track"',
     ),
     limit: int = Query(20, ge=1, le=100),
-    offset: int = Query(0, ge=0),
+    offset: int = Query(0, ge=0, description="Fallback offset applied to any bucket without an explicit override."),
+    artist_offset: Optional[int] = Query(None, ge=0, description="Per-bucket offset for the artists slice (overrides `offset`)."),
+    album_offset: Optional[int] = Query(None, ge=0, description="Per-bucket offset for the albums slice (overrides `offset`)."),
+    track_offset: Optional[int] = Query(None, ge=0, description="Per-bucket offset for the tracks slice (overrides `offset`)."),
     db: Session = Depends(get_db),
 ):
     types = {t.strip().lower() for t in type.split(",") if t.strip()}
@@ -34,7 +37,15 @@ def unified_search(
         raise HTTPException(status_code=400, detail=f"Invalid types: {sorted(invalid)}")
     if not types:
         raise HTTPException(status_code=400, detail="type must not be empty")
-    return DBSearchService(db).unified_search(q=q, types=types, limit=limit, offset=offset)
+    return DBSearchService(db).unified_search(
+        q=q,
+        types=types,
+        limit=limit,
+        offset=offset,
+        artist_offset=artist_offset,
+        album_offset=album_offset,
+        track_offset=track_offset,
+    )
 
 
 # -------------------------------

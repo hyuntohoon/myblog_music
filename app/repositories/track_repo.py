@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select
 from typing import Iterable, List
 
-from myblog_shared_db.models import Track, Album
+from myblog_shared_db.models import Track, Album, track_artists_table
 from app.repositories.artist_repo import ArtistRepository
 
 
@@ -37,6 +37,40 @@ class TrackRepository:
             .order_by(Track.views.desc(), Track.created_at.desc())
             .limit(limit)
             .offset(offset)
+        )
+        return list(self.db.execute(stmt).scalars().all())
+
+    # BUG-19 expansion: tracks for a single matched artist, capped at LIMIT
+    # at the SQL layer per Q2 (default 50, "not post-fetch"), ordered by
+    # Album.release_date DESC NULLS LAST (no Track.popularity column today).
+    def list_by_artist_id(self, artist_id, limit: int = 50) -> List[Track]:
+        stmt = (
+            select(Track)
+            .options(
+                selectinload(Track.album).selectinload(Album.artists),
+                selectinload(Track.artists),
+            )
+            .join(track_artists_table, track_artists_table.c.track_id == Track.id)
+            .join(Album, Track.album_id == Album.id)
+            .where(track_artists_table.c.artist_id == artist_id)
+            .order_by(Album.release_date.desc().nullslast())
+            .limit(limit)
+        )
+        return list(self.db.execute(stmt).scalars().all())
+
+    # BUG-19 expansion: tracks for matched album ids, bulk-loaded.
+    # Used when an album literal-matched and we need its tracks for the track bucket.
+    def list_by_album_ids(self, album_ids: List) -> List[Track]:
+        if not album_ids:
+            return []
+        stmt = (
+            select(Track)
+            .options(
+                selectinload(Track.album).selectinload(Album.artists),
+                selectinload(Track.artists),
+            )
+            .where(Track.album_id.in_(album_ids))
+            .order_by(Track.track_no.asc().nullslast())
         )
         return list(self.db.execute(stmt).scalars().all())
 
