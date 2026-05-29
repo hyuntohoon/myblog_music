@@ -49,6 +49,7 @@ class TrackItem(BaseModel):
 
     # UI 서브텍스트용
     artist_name: Optional[str] = None
+    feat_artist_names: List[str] = Field(default_factory=list)
 
 
 class SearchResult(BaseModel):

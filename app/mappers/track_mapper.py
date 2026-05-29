@@ -20,6 +20,13 @@ class TrackItemMapper:
                 if album_artists:
                     artist_name = album_artists[0].name
 
+            # feat: 트랙 artists 중 대표(artist_name) 제외, 알파벳 정렬, 중복 제거.
+            # album_artists fallback 으로 갔다면 feat 는 빈 list (검색 응답은 album.artists 메타 미노출).
+            feat_artist_names = sorted({
+                a.name for a in track_artists
+                if getattr(a, "name", None) and a.name != artist_name
+            })
+
             out.append(
                 TrackItem(
                     id=str(t.id),
@@ -33,6 +40,7 @@ class TrackItemMapper:
                     release_date=al.release_date.isoformat() if al and al.release_date else None,
                     album_spotify_id=getattr(al, "spotify_id", None) if al else None,
                     artist_name=artist_name,
+                    feat_artist_names=feat_artist_names,
                 )
             )
         return out

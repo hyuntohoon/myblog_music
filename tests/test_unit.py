@@ -206,6 +206,98 @@ class TestAlbumServiceWriteUxBundle:
         assert result.tracks[0].feat_artist_names == []
 
 
+class TestTrackItemMapperFeatArtistNames:
+    """BUG-19 Step 1: unified search TrackItem 의 feat_artist_names list 노출.
+
+    album_service 와 변형 규칙이 다르다 — representative `artist_name` 만 제외
+    (검색 응답에는 album.artists 메타가 없어 album_artist_ids 비교 불가, RFC 참조).
+    """
+
+    def _make_artist(self, name: str):
+        ar = MagicMock()
+        ar.id = uuid.uuid4()
+        ar.name = name
+        return ar
+
+    def _make_album(self, *, artists=None):
+        from datetime import date
+        al = MagicMock()
+        al.id = uuid.uuid4()
+        al.title = "Album"
+        al.release_date = date(2020, 1, 1)
+        al.cover_url = None
+        al.spotify_id = "alb_sp"
+        al.artists = artists or []
+        return al
+
+    def _make_track(self, *, title: str, artists: list, album):
+        t = MagicMock()
+        t.id = uuid.uuid4()
+        t.title = title
+        t.track_no = 1
+        t.duration_sec = 200
+        t.spotify_id = "trk_sp"
+        t.album_id = album.id
+        t.album = album
+        t.artists = artists
+        return t
+
+    def test_two_artists_primary_excluded(self):
+        """track.artists=[A, B] → artist_name=A, feat=[B]."""
+        from app.mappers.track_mapper import TrackItemMapper
+        a = self._make_artist("Alpha")
+        b = self._make_artist("Bravo")
+        al = self._make_album()
+        t = self._make_track(title="Song", artists=[a, b], album=al)
+        items = TrackItemMapper.to_list([t])
+        assert items[0].artist_name == "Alpha"
+        assert items[0].feat_artist_names == ["Bravo"]
+
+    def test_single_artist_empty_feat(self):
+        """track.artists=[A] → feat=[]."""
+        from app.mappers.track_mapper import TrackItemMapper
+        a = self._make_artist("Alpha")
+        al = self._make_album()
+        t = self._make_track(title="Song", artists=[a], album=al)
+        items = TrackItemMapper.to_list([t])
+        assert items[0].artist_name == "Alpha"
+        assert items[0].feat_artist_names == []
+
+    def test_album_artists_fallback_no_feat(self):
+        """track.artists=[], album.artists=[X] → artist_name=X, feat=[] (mapper 는
+        album_artists 를 feat 후보로 쓰지 않음)."""
+        from app.mappers.track_mapper import TrackItemMapper
+        x = self._make_artist("Xray")
+        al = self._make_album(artists=[x])
+        t = self._make_track(title="Song", artists=[], album=al)
+        items = TrackItemMapper.to_list([t])
+        assert items[0].artist_name == "Xray"
+        assert items[0].feat_artist_names == []
+
+    def test_duplicate_primary_in_track_artists(self):
+        """track.artists=[BTS, BTS] → primary 제외 후 빈 list (dedupe + 정렬)."""
+        from app.mappers.track_mapper import TrackItemMapper
+        bts1 = self._make_artist("BTS")
+        bts2 = self._make_artist("BTS")
+        al = self._make_album()
+        t = self._make_track(title="Song", artists=[bts1, bts2], album=al)
+        items = TrackItemMapper.to_list([t])
+        assert items[0].artist_name == "BTS"
+        assert items[0].feat_artist_names == []
+
+    def test_three_artists_sorted_and_deduped(self):
+        """track.artists=[A, B, A] → primary=A, feat=[B] (잔여 dedupe + 알파벳 정렬)."""
+        from app.mappers.track_mapper import TrackItemMapper
+        a1 = self._make_artist("Alpha")
+        b = self._make_artist("Bravo")
+        a2 = self._make_artist("Alpha")
+        al = self._make_album()
+        t = self._make_track(title="Song", artists=[a1, b, a2], album=al)
+        items = TrackItemMapper.to_list([t])
+        assert items[0].artist_name == "Alpha"
+        assert items[0].feat_artist_names == ["Bravo"]
+
+
 class TestCandidateSearchResultSchema:
     """PR-12: /api/music/search/candidates response_model — front consumes typed shape."""
 
