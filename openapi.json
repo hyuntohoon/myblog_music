@@ -69,6 +69,11 @@
             ],
             "title": "Artist Spotify Id"
           },
+          "best_new": {
+            "default": false,
+            "title": "Best New",
+            "type": "boolean"
+          },
           "cover_url": {
             "anyOf": [
               {
@@ -174,6 +179,11 @@
               }
             ],
             "title": "Album Type"
+          },
+          "best_new": {
+            "default": false,
+            "title": "Best New",
+            "type": "boolean"
           },
           "cover_url": {
             "anyOf": [

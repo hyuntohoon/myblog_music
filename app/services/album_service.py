@@ -31,6 +31,7 @@ class AlbumService:
                 spotify_id=al.spotify_id,
                 external_url=(al.ext_refs or {}).get("spotify_url"),
                 label=al.label,
+                best_new=bool(getattr(al, "best_new", False)),
             ),
             artists=[
                 ArtistOut(id=str(a.id), name=a.name, spotify_id=a.spotify_id)
