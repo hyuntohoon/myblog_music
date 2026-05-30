@@ -1,8 +1,8 @@
 import logging
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, select, text
-from typing import Optional, List, Dict
-from myblog_shared_db.models import Artist
+from sqlalchemy import or_, select, text, func
+from typing import Optional, List, Dict, Tuple
+from myblog_shared_db.models import Artist, album_artists_table, track_artists_table
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +20,22 @@ class ArtistRepository:
         return self.db.execute(
             select(Artist).where(Artist.id == artist_id)
         ).scalars().first()
+
+    # FEAT-writer-lowfreq-redesign Step 3: hero 표시용 보조 count.
+    # tracks 는 track_artists 조인 (album 의 다른 artist 가 부른 곡 포함 X 의도).
+    # albums 는 album_artists 조인.
+    def count_albums_and_tracks(self, artist_id: str) -> Tuple[int, int]:
+        album_count = self.db.execute(
+            select(func.count())
+            .select_from(album_artists_table)
+            .where(album_artists_table.c.artist_id == artist_id)
+        ).scalar_one()
+        track_count = self.db.execute(
+            select(func.count())
+            .select_from(track_artists_table)
+            .where(track_artists_table.c.artist_id == artist_id)
+        ).scalar_one()
+        return int(album_count or 0), int(track_count or 0)
 
     def search_by_name(self, q: str, limit: int, offset: int) -> List[Artist]:
         # Match on Artist.name (substring, case-insensitive) OR any element of the

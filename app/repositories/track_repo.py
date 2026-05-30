@@ -58,6 +58,31 @@ class TrackRepository:
         )
         return list(self.db.execute(stmt).scalars().all())
 
+    # FEAT-writer-lowfreq-redesign Step 3: top-tracks for the artist drill-in.
+    # Ordering, per RFC: views DESC → albums.popularity DESC NULLS LAST →
+    # albums.release_date DESC NULLS LAST → track_no ASC (stable).
+    # Covers cold-catalog case where views=0 and popularity flat — newest album wins.
+    # Selects across every album the artist credits on (track_artists join).
+    def list_top_tracks_by_artist(self, artist_id, limit: int = 10) -> List[Track]:
+        stmt = (
+            select(Track)
+            .options(
+                selectinload(Track.album).selectinload(Album.artists),
+                selectinload(Track.artists),
+            )
+            .join(track_artists_table, track_artists_table.c.track_id == Track.id)
+            .join(Album, Track.album_id == Album.id)
+            .where(track_artists_table.c.artist_id == artist_id)
+            .order_by(
+                Track.views.desc(),
+                Album.popularity.desc().nullslast(),
+                Album.release_date.desc().nullslast(),
+                Track.track_no.asc().nullslast(),
+            )
+            .limit(limit)
+        )
+        return list(self.db.execute(stmt).scalars().all())
+
     # BUG-19 expansion: tracks for matched album ids, bulk-loaded.
     # Used when an album literal-matched and we need its tracks for the track bucket.
     def list_by_album_ids(self, album_ids: List) -> List[Track]:

@@ -103,6 +103,25 @@ class AlbumDetail(BaseModel):
     meta: dict = Field(default_factory=dict)
 
 
+# ------- 아티스트 hero (드릴인용) -------
+# FEAT-writer-lowfreq-redesign Step 3: writer 의 artist drill-in 패널 hero.
+# `status` 는 by-spotify lookup 의 ready/pending 분기를 위한 필드.
+# 현 시점에는 absorb-tracking 테이블이 없어 pending 상태를 직접 못 만들지만,
+# 스키마에는 유지해서 향후 비동기 흡수 도입 시 응답 모양만 확장하면 되게 둔다.
+class ArtistHero(BaseModel):
+    id: Optional[str] = None
+    name: str
+    spotify_id: Optional[str] = None
+    photo_url: Optional[str] = None
+    genres: List[str] = Field(default_factory=list)
+    followers: Optional[int] = None
+    popularity: Optional[int] = None
+    spotify_url: Optional[str] = None
+    album_count: int = 0
+    track_count: int = 0
+    status: str = "ready"  # "ready" | "pending" (현재 prod 에선 "ready" 만 발생)
+
+
 # ------- 후보 검색(Spotify-passthrough) 응답 -------
 # 주의: 후보 응답 아이템은 DB 검색용 AlbumItem/ArtistItem과 별개다.
 # DB가 아직 모르는 항목이라 `id` (DB UUID)가 없고 `spotify_id`만 있다.
