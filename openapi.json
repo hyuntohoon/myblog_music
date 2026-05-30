@@ -246,6 +246,107 @@
         "title": "AlbumOut",
         "type": "object"
       },
+      "ArtistHero": {
+        "properties": {
+          "album_count": {
+            "default": 0,
+            "title": "Album Count",
+            "type": "integer"
+          },
+          "followers": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Followers"
+          },
+          "genres": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Genres",
+            "type": "array"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "photo_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Photo Url"
+          },
+          "popularity": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Popularity"
+          },
+          "spotify_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spotify Id"
+          },
+          "spotify_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spotify Url"
+          },
+          "status": {
+            "default": "ready",
+            "title": "Status",
+            "type": "string"
+          },
+          "track_count": {
+            "default": 0,
+            "title": "Track Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "ArtistHero",
+        "type": "object"
+      },
       "ArtistItem": {
         "properties": {
           "cover_url": {
@@ -1231,6 +1332,91 @@
         ]
       }
     },
+    "/api/music/artists/by-spotify/{spotify_id}": {
+      "get": {
+        "operationId": "get_artist_by_spotify_api_music_artists_by_spotify__spotify_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "spotify_id",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "title": "Spotify Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtistHero"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Artist By Spotify",
+        "tags": [
+          "Artists"
+        ]
+      }
+    },
+    "/api/music/artists/{artist_id}": {
+      "get": {
+        "operationId": "get_artist_api_music_artists__artist_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "artist_id",
+            "required": true,
+            "schema": {
+              "title": "Artist Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtistHero"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Artist",
+        "tags": [
+          "Artists"
+        ]
+      }
+    },
     "/api/music/artists/{artist_id}/albums": {
       "get": {
         "operationId": "get_artist_albums_api_music_artists__artist_id__albums_get",
@@ -1291,6 +1477,64 @@
           }
         },
         "summary": "Get Artist Albums",
+        "tags": [
+          "Artists"
+        ]
+      }
+    },
+    "/api/music/artists/{artist_id}/top-tracks": {
+      "get": {
+        "operationId": "get_artist_top_tracks_api_music_artists__artist_id__top_tracks_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "artist_id",
+            "required": true,
+            "schema": {
+              "title": "Artist Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 10,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TrackItem"
+                  },
+                  "title": "Response Get Artist Top Tracks Api Music Artists  Artist Id  Top Tracks Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Artist Top Tracks",
         "tags": [
           "Artists"
         ]
