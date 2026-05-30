@@ -30,6 +30,10 @@ class AlbumItem(BaseModel):
     total_tracks: Optional[int] = None
     label: Optional[str] = None
     popularity: Optional[int] = None
+    # FEAT-writer-lowfreq-redesign Step 5: editor-set BEST NEW MUSIC flag.
+    # Default false so payloads from pre-v0.3.0 DBs (or rows where the column
+    # hasn't been written) deserialize cleanly.
+    best_new: bool = False
 
 
 # ✅ 리스트용 트랙 (통합 검색에서 사용)
@@ -94,6 +98,9 @@ class AlbumOut(BaseModel):
     spotify_id: Optional[str] = None
     external_url: Optional[str] = None
     label: Optional[str] = None
+    # FEAT-writer-lowfreq-redesign Step 5: writer reads this when loading the
+    # subject card so the BEST NEW pill seeds from the album's current state.
+    best_new: bool = False
 
 
 class AlbumDetail(BaseModel):

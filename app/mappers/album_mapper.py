@@ -28,6 +28,7 @@ class AlbumItemMapper:
                     total_tracks=getattr(al, "total_tracks", None),
                     label=getattr(al, "label", None),
                     popularity=getattr(al, "popularity", None),
+                    best_new=bool(getattr(al, "best_new", False)),
                 )
             )
         return result
