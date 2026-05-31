@@ -4,3 +4,7 @@ venv
 # Python cache files
 __pycache__/
 *.py[cod]
+
+# Local env (secrets — never commit; see README 환경 변수)
+.env
+.env.*
