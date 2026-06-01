@@ -28,12 +28,15 @@
 
 ## API 엔드포인트
 
-| Method | Path | 설명 |
-|--------|------|------|
-| `GET` | `/api/music/search/unified` | DB-first 통합 검색 (Artists/Albums/Tracks) |
-| `GET` | `/api/music/search/candidates` | Spotify 후보 검색 + SQS enqueue |
-| `GET` | `/api/music/albums/:id` | 앨범 상세 조회 (DB-only) |
-| `GET` | `/api/music/albums/by-spotify/:spotify_id` | Spotify ID로 앨범 조회 (DB-only) |
+| Method | Path                                          | 설명                                              | 인증        |
+|--------|-----------------------------------------------|---------------------------------------------------|-------------|
+| `GET`  | `/api/music/search/unified`                   | DB-first 통합 검색 (Artists/Albums/Tracks)        | -           |
+| `GET`  | `/api/music/search/candidates`                | Spotify 후보 검색 + SQS enqueue                   | Cognito JWT |
+| `GET`  | `/api/music/albums/:id`                       | 앨범 상세 (DB-only)                               | -           |
+| `GET`  | `/api/music/albums/by-spotify/:spotify_id`    | Spotify ID 로 앨범 조회 (DB-only)                 | -           |
+| `GET`  | `/api/music/artists/:artist_id`               | 아티스트 hero (followers, genres, popularity)     | -           |
+| `GET`  | `/api/music/artists/:artist_id/albums`        | 해당 아티스트의 앨범 목록                         | -           |
+| `GET`  | `/api/music/artists/:artist_id/top-tracks`    | 해당 아티스트의 인기 트랙                         | -           |
 
 ---
 
@@ -61,26 +64,28 @@
 
 ## 기술 스택
 
-| 항목 | 기술 |
-|------|------|
-| 배포 | AWS Lambda + API Gateway |
-| 데이터베이스 | Amazon RDS (PostgreSQL) |
-| 비동기 큐 | Amazon SQS |
-| 외부 API | Spotify Web API |
+| 항목         | 기술                              |
+|--------------|-----------------------------------|
+| 배포         | AWS Lambda + API Gateway          |
+| 데이터베이스 | Neon Serverless Postgres          |
+| 비동기 큐    | Amazon SQS (album-sync FIFO + DLQ)|
+| 외부 API     | Spotify Web API                   |
+| 도메인 모델  | `myblog-shared-db` (git-pinned)   |
 
 ---
 
 ## 환경 변수
 
-| 변수 | 설명 |
-|------|------|
-| `DATABASE_URL` | RDS 접속 URL |
-| `SPOTIFY_CLIENT_ID` | Spotify 앱 Client ID |
-| `SPOTIFY_CLIENT_SECRET` | Spotify 앱 Client Secret |
-| `SQS_QUEUE_URL` | SQS 큐 URL |
-| `AWS_DEFAULT_REGION` | AWS 리전 |
+| 변수                    | 설명                                                                |
+|-------------------------|---------------------------------------------------------------------|
+| `SECRETS_ARN`           | AWS Secrets Manager `myblog/music` 의 ARN (prod). cold-start 1회 fetch + `@lru_cache` |
+| `DATABASE_URL`          | Neon 접속 URL (`postgresql+psycopg://...`) — local dev 시 직접 주입 |
+| `SPOTIFY_CLIENT_ID`     | Spotify 앱 Client ID                                                |
+| `SPOTIFY_CLIENT_SECRET` | Spotify 앱 Client Secret                                            |
+| `SQS_QUEUE_URL`         | SQS 큐 URL (album-sync FIFO)                                        |
+| `AWS_DEFAULT_REGION`    | AWS 리전                                                            |
 
-> 로컬 개발 시 리포 루트에 `.env` (git-ignored)를 만들어 채웁니다. 실제 값은 절대 커밋하지 마세요 — 운영 값은 AWS Secrets Manager(`SECRETS_ARN`)에서 로드됩니다.
+> 로컬 개발 시 리포 루트에 `.env` (git-ignored)를 만들어 채웁니다. 실제 값은 절대 커밋하지 마세요 — 운영 값은 모두 `SECRETS_ARN` 한 곳에서 로드됩니다.
 >
 > ```dotenv
 > DATABASE_URL=postgresql+psycopg://blog:blog@127.0.0.1:5433/blog
@@ -98,10 +103,12 @@
 
 ## 관련 리포지토리
 
-| 리포 | 역할 |
-|------|------|
-| [`myblog_front`](https://github.com/hyuntohoon/myblog_front) | 정적 사이트 + 글쓰기 UI |
-| [`myblog_backend`](https://github.com/hyuntohoon/myblog_backend) | 글·카테고리 API + 인증 |
-| **myblog_music** (현재) | DB-first 검색 + Sync 트리거 |
-| [`myblog_worker`](https://github.com/hyuntohoon/myblog_worker) | SQS Consumer + Spotify 동기화 |
-| [`myblog_publish`](https://github.com/hyuntohoon/myblog_publish) | 정적 사이트 발행 |
+| 리포                                                                   | 역할                                  |
+|------------------------------------------------------------------------|---------------------------------------|
+| [`myblog_front`](https://github.com/hyuntohoon/myblog_front)           | 정적 사이트 + 글쓰기 UI               |
+| [`myblog_backend`](https://github.com/hyuntohoon/myblog_backend)       | 글·카테고리 API + 인증 + 발행         |
+| **myblog_music** (현재)                                                | DB-first 검색 + Sync 트리거           |
+| [`myblog_worker`](https://github.com/hyuntohoon/myblog_worker)         | SQS Consumer + Spotify 동기화         |
+| [`myblog_shared_db`](https://github.com/hyuntohoon/myblog_shared_db)   | 공유 SQLAlchemy 모델 (git-pinned)     |
+
+> 옛 `myblog_publish` 서비스는 ARCH-11 으로 backend 에 흡수되었고 업스트림은 archived 됨.
