@@ -7,7 +7,6 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- ========== ENUMS ==========
 CREATE TYPE post_status AS ENUM ('draft', 'published', 'archived');
-CREATE TYPE review_subject AS ENUM ('album', 'track');
 
 -- ========== CATEGORIES & TAGS ==========
 CREATE TABLE categories (
@@ -140,28 +139,6 @@ CREATE TABLE track_artists (
   role TEXT,
   PRIMARY KEY (track_id, artist_id)
 );
-
--- ========== REVIEWS ==========
-CREATE TABLE post_reviews (
-  id BIGSERIAL PRIMARY KEY,
-  post_id UUID NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
-  subject review_subject NOT NULL,
-  album_id UUID REFERENCES albums(id) ON DELETE SET NULL,
-  track_id UUID REFERENCES tracks(id) ON DELETE SET NULL,
-  rating_value NUMERIC(3,1),
-  rating_scale SMALLINT NOT NULL DEFAULT 10,
-  notes TEXT,
-  extra JSONB NOT NULL DEFAULT '{}'::jsonb,
-  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-  CHECK (
-    (subject = 'album' AND album_id IS NOT NULL AND track_id IS NULL)
-    OR
-    (subject = 'track' AND track_id IS NOT NULL AND album_id IS NULL)
-  )
-);
-CREATE INDEX idx_post_reviews_post_id ON post_reviews(post_id);
-CREATE INDEX idx_post_reviews_album_id ON post_reviews(album_id);
-CREATE INDEX idx_post_reviews_track_id ON post_reviews(track_id);
 
 -- ========== OUTBOX / PUBLISHING ==========
 CREATE TABLE outbox_events (
