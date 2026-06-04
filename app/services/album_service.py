@@ -34,7 +34,16 @@ class AlbumService:
                 best_new=bool(getattr(al, "best_new", False)),
             ),
             artists=[
-                ArtistOut(id=str(a.id), name=a.name, spotify_id=a.spotify_id)
+                ArtistOut(
+                    id=str(a.id),
+                    name=a.name,
+                    spotify_id=a.spotify_id,
+                    photo_url=a.photo_url,
+                    genres=a.genres or [],
+                    followers_count=a.followers,
+                    popularity=a.popularity,
+                    spotify_url=a.spotify_url,
+                )
                 for a in artists
             ],
             tracks=[
