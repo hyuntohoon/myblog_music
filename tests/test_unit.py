@@ -137,11 +137,17 @@ class TestAlbumServiceWriteUxBundle:
         al.label = label
         return al
 
-    def _make_artist(self, name: str):
+    def _make_artist(self, name: str, *, photo_url=None, genres=None,
+                     popularity=None, followers=None, spotify_url=None):
         ar = MagicMock()
         ar.id = uuid.uuid4()
         ar.name = name
         ar.spotify_id = f"sp_{name}"
+        ar.photo_url = photo_url
+        ar.genres = genres if genres is not None else []
+        ar.popularity = popularity
+        ar.followers = followers
+        ar.spotify_url = spotify_url
         return ar
 
     def _make_track(self, *, title: str, track_no: int, artists: list):
@@ -204,6 +210,39 @@ class TestAlbumServiceWriteUxBundle:
         svc = self._svc(album=al, album_artists=[primary], tracks=[t])
         result = svc.get_album_detail(str(al.id))
         assert result.tracks[0].feat_artist_names == []
+
+    def test_album_artist_media_fields_mapped(self):
+        # Regression: album detail dropped photo_url/genres/popularity/
+        # followers/spotify_url (only id/name/spotify_id were mapped), so the
+        # /profile bucket detail slide-over rendered a letter tile instead of
+        # the synced artist photo even though the DB column was populated.
+        al = self._make_album()
+        ar = self._make_artist(
+            "아이유",
+            photo_url="https://i.scdn.co/image/iu.jpg",
+            genres=["k-pop", "k-ballad"],
+            popularity=88,
+            followers=1234567,
+            spotify_url="https://open.spotify.com/artist/abc",
+        )
+        svc = self._svc(album=al, album_artists=[ar], tracks=[])
+        out = svc.get_album_detail(str(al.id)).artists[0]
+        assert out.photo_url == "https://i.scdn.co/image/iu.jpg"
+        assert out.genres == ["k-pop", "k-ballad"]
+        assert out.popularity == 88
+        assert out.followers_count == 1234567
+        assert out.spotify_url == "https://open.spotify.com/artist/abc"
+
+    def test_album_artist_media_fields_default_when_absent(self):
+        al = self._make_album()
+        ar = self._make_artist("Unknown")
+        svc = self._svc(album=al, album_artists=[ar], tracks=[])
+        out = svc.get_album_detail(str(al.id)).artists[0]
+        assert out.photo_url is None
+        assert out.genres == []
+        assert out.popularity is None
+        assert out.followers_count is None
+        assert out.spotify_url is None
 
 
 class TestTrackItemMapperFeatArtistNames:
