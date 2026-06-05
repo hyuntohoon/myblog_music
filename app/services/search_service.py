@@ -15,7 +15,9 @@ from app.mappers.track_mapper import TrackItemMapper
 
 ALLOWED_TYPES: Set[str] = {"album", "artist", "track"}
 
-# Path labels for the merge/dedup phase. Literal beats expansion for ranking.
+# Path labels for the merge/dedup phase. Ranking precedence:
+#   decomposed (most precise multi-token read) > literal > expansion.
+PATH_DECOMPOSED = "decomposed"
 PATH_LITERAL = "literal"
 PATH_EXPANSION = "expansion"
 
@@ -23,6 +25,35 @@ PATH_EXPANSION = "expansion"
 ARTIST_TRACKS_EXPANSION_CAP = 50
 # Per-artist cap on the artist→albums expansion query (mirrors track cap for symmetry).
 ARTIST_ALBUMS_EXPANSION_CAP = 50
+
+# Step 6 (A2) — structured multi-token decomposition bounds. Only queries with
+# 2–3 whitespace tokens are decomposed; each contributes a small, bounded set of
+# (artist_part, title_part) splits (clamped to DECOMP_MAX_SPLITS), and only the
+# top DECOMP_ARTIST_CANDIDATES artists per split feed the intersection.
+DECOMP_MIN_TOKENS = 2
+DECOMP_MAX_TOKENS = 3
+DECOMP_MAX_SPLITS = 6
+DECOMP_ARTIST_CANDIDATES = 5
+
+
+def _decomposition_splits(tokens: list[str]) -> list[tuple[str, str]]:
+    """Contiguous (artist_part, title_part) split candidates + their reverses.
+
+    For ``["A", "B", "C"]`` → ``("A","B C"), ("B C","A"), ("A B","C"), ("C","A B")``
+    — every contiguous prefix/suffix cut, taken both ways so the artist token can
+    sit on either side of the title. Deduped, clamped to DECOMP_MAX_SPLITS
+    (2 tokens → 2 splits, 3 tokens → 4 splits).
+    """
+    splits: list[tuple[str, str]] = []
+    seen: Set[tuple[str, str]] = set()
+    for k in range(1, len(tokens)):
+        left = " ".join(tokens[:k])
+        right = " ".join(tokens[k:])
+        for pair in ((left, right), (right, left)):
+            if pair not in seen:
+                seen.add(pair)
+                splits.append(pair)
+    return splits[:DECOMP_MAX_SPLITS]
 
 
 def _similarity(name: str | None, q: str) -> int:
@@ -85,6 +116,20 @@ class SearchService:
             self.track_repo.search_by_title(q, limit, t_off) if "track" in wanted else []
         )
 
+        # ---- Phase 1.5: structured multi-token decomposition (Step 6 / A2) ----
+        # Parse the query once here (single boundary). For a 2–3 token query,
+        # split it into (artist_part, title_part) and intersect title-token
+        # album/track matches with albums/tracks credited to an artist matching
+        # artist_part. This is a higher-precision read of "<artist> <title>"
+        # queries than the whole-string fuzzy match, which dilutes similarity
+        # with the artist token. Decomposed rows rank above literal/expansion.
+        decomp_albums, decomp_album_sim = self._decompose(
+            q, "album", limit
+        ) if "album" in wanted else ([], {})
+        decomp_tracks, decomp_track_sim = self._decompose(
+            q, "track", limit
+        ) if "track" in wanted else ([], {})
+
         # ---- Phase 2: 1-hop expansion (strictly 1, no transitive walks) ----
         exp_artists: list = []
         exp_albums: list = []
@@ -126,14 +171,27 @@ class SearchService:
                 exp_artists.extend(t.artists or [])
 
         # ---- Phase 3: merge & dedup, retaining the strongest path ----
-        artists_merged, artist_path = _merge_by_id(literal_artists, exp_artists)
-        albums_merged, album_path = _merge_by_id(literal_albums, exp_albums)
-        tracks_merged, track_path = _merge_by_id(literal_tracks, exp_tracks)
+        # Group order = path precedence: first occurrence of an id wins, so a row
+        # reached via decomposition keeps that label even if it also matched
+        # literally or via expansion.
+        artists_merged, artist_path = _merge_paths(
+            (literal_artists, PATH_LITERAL), (exp_artists, PATH_EXPANSION)
+        )
+        albums_merged, album_path = _merge_paths(
+            (decomp_albums, PATH_DECOMPOSED),
+            (literal_albums, PATH_LITERAL),
+            (exp_albums, PATH_EXPANSION),
+        )
+        tracks_merged, track_path = _merge_paths(
+            (decomp_tracks, PATH_DECOMPOSED),
+            (literal_tracks, PATH_LITERAL),
+            (exp_tracks, PATH_EXPANSION),
+        )
 
         # ---- Phase 4: rank per bucket per the path-dependent rules ----
         ranked_artists = _rank_artists(artists_merged, artist_path, q)
-        ranked_albums = _rank_albums(albums_merged, album_path, q)
-        ranked_tracks = _rank_tracks(tracks_merged, track_path, q)
+        ranked_albums = _rank_albums(albums_merged, album_path, q, decomp_album_sim)
+        ranked_tracks = _rank_tracks(tracks_merged, track_path, q, decomp_track_sim)
 
         # ---- Phase 5: trim — singular `limit` applies per bucket this step ----
         ranked_artists = ranked_artists[:limit]
@@ -157,31 +215,67 @@ class SearchService:
         album_ids = [al.id for al in albums]
         return self.album_repo.get_primary_artist_map(album_ids)
 
+    def _decompose(self, q: str, bucket: str, limit: int) -> Tuple[list, dict]:
+        """Step 6 (A2): structured decomposition of a 2–3 token query.
 
-def _merge_by_id(literal: list, expansion: list) -> Tuple[list, dict]:
-    """Merge literal-match rows with expansion-derived rows, keyed by `.id`.
+        Returns (rows, sim_map) where rows are album/track entities reached by
+        intersecting a title-token match with an artist-token match, and
+        sim_map[id] is the literal similarity of the row's title against the
+        *title_part* (not the whole query) — used to rank decomposed rows. For
+        a 1-token query (or no split yields a hit) returns ([], {}).
+        """
+        tokens = q.split()
+        if not (DECOMP_MIN_TOKENS <= len(tokens) <= DECOMP_MAX_TOKENS):
+            return [], {}
 
-    Returns (merged_rows, path_map) where path_map[id] is PATH_LITERAL when the
-    row appeared in `literal` (even if also in expansion), else PATH_EXPANSION.
-    Iteration order: literal rows first (preserving query order), then
-    expansion-only rows (preserving discovery order).
+        rows: list = []
+        sim_map: dict = {}
+        for artist_part, title_part in _decomposition_splits(tokens):
+            artist_ids = {
+                ar.id
+                for ar in self.artist_repo.search_by_name(
+                    artist_part, DECOMP_ARTIST_CANDIDATES, 0
+                )
+            }
+            if not artist_ids:
+                continue
+            if bucket == "album":
+                for al in self.album_repo.search_by_title(title_part, limit, 0):
+                    if al.id in sim_map:
+                        continue
+                    if any(a.id in artist_ids for a in (al.artists or [])):
+                        rows.append(al)
+                        sim_map[al.id] = _similarity(al.title, title_part)
+            else:  # track
+                for t in self.track_repo.search_by_title(title_part, limit, 0):
+                    if t.id in sim_map:
+                        continue
+                    credited = {a.id for a in (t.artists or [])}
+                    credited |= {
+                        a.id for a in (getattr(t.album, "artists", None) or [])
+                    }
+                    if credited & artist_ids:
+                        rows.append(t)
+                        sim_map[t.id] = _similarity(t.title, title_part)
+        return rows, sim_map
+
+
+def _merge_paths(*groups: Tuple[list, str]) -> Tuple[list, dict]:
+    """Merge several (rows, path_label) groups keyed by `.id`, first occurrence
+    wins. Groups are passed in precedence order (strongest path first), so a row
+    present in an earlier group keeps that label and is not downgraded by a later
+    one. Within a group, discovery order is preserved.
     """
     path: dict = {}
-    seen: dict = {}
+    seen: set = set()
     out: list = []
-    for row in literal:
-        rid = row.id
-        if rid not in seen:
-            seen[rid] = row
-            path[rid] = PATH_LITERAL
-            out.append(row)
-    for row in expansion:
-        rid = row.id
-        if rid not in seen:
-            seen[rid] = row
-            path[rid] = PATH_EXPANSION
-            out.append(row)
-        # else: row already in literal — keep literal path (don't downgrade)
+    for rows, label in groups:
+        for row in rows:
+            rid = row.id
+            if rid not in seen:
+                seen.add(rid)
+                path[rid] = label
+                out.append(row)
     return out, path
 
 
@@ -200,24 +294,36 @@ def _rank_artists(rows: list, path: dict, q: str) -> list:
     return sorted(rows, key=key)
 
 
-def _rank_albums(rows: list, path: dict, q: str) -> list:
+def _rank_albums(rows: list, path: dict, q: str, decomp_sim: dict | None = None) -> list:
+    decomp_sim = decomp_sim or {}
+
     def key(al):
-        is_literal = path.get(al.id) == PATH_LITERAL
+        p = path.get(al.id)
         pop = getattr(al, "popularity", None) or 0
-        if is_literal:
+        if p == PATH_DECOMPOSED:
+            # Top tier: similarity is against the title_part, so an exact
+            # title-token match (e.g. "Proof" in "방탄소년단 Proof") scores 3.
+            return (-1, -decomp_sim.get(al.id, 0), -pop)
+        if p == PATH_LITERAL:
             sim = _similarity(getattr(al, "title", None), q)
             return (0, -sim, -pop)
         return (1, 0, -pop)
     return sorted(rows, key=key)
 
 
-def _rank_tracks(rows: list, path: dict, q: str) -> list:
+def _rank_tracks(rows: list, path: dict, q: str, decomp_sim: dict | None = None) -> list:
     """No `Track.popularity` column today — path-dependent ranking:
+    - decomposed (Step 6) → similarity to the title_part (top tier)
     - literal title match → similarity to query
     - expansion (via artist or album) → Album.release_date DESC (newest first)
     """
+    decomp_sim = decomp_sim or {}
+
     def key(t):
-        is_literal = path.get(t.id) == PATH_LITERAL
+        p = path.get(t.id)
+        if p == PATH_DECOMPOSED:
+            return (-1, -decomp_sim.get(t.id, 0), 0)
+        is_literal = p == PATH_LITERAL
         if is_literal:
             sim = _similarity(getattr(t, "title", None), q)
             return (0, -sim, 0)

@@ -246,6 +246,74 @@ def test_album_match_expands_to_tracks_and_artists(session):
     assert primary.name in artist_names
 
 
+def test_multi_token_decomposition_surfaces_artists_album(session):
+    """Step 6 (A2): a "<artist> <title>" query surfaces the matching artist's
+    album at rank-1 — even though neither a whole-string literal match nor the
+    1-hop expansion would reach it — and a same-titled album by a *different*
+    artist is excluded (the artist-token intersection gives precision).
+    """
+    # Independent suffixes for artist vs title so pg_trgm can't fuzzy-bridge an
+    # artist name to an album title (a shared suffix would cross-contaminate the
+    # decomposition splits under the trgm path).
+    a_sfx = uuid.uuid4().hex[:6]
+    t_sfx = uuid.uuid4().hex[:6]
+    artist_name = f"Zephyrar{a_sfx}"         # single token → clean artist_part
+    shared_title = f"Miragett{t_sfx}"        # both albums share this title
+
+    artist = Artist(
+        id=uuid.uuid4(),
+        name=artist_name,
+        spotify_id=f"sp_zep_{uuid.uuid4().hex[:10]}",
+        popularity=50,
+    )
+    other = Artist(
+        id=uuid.uuid4(),
+        name=f"Quasaro{uuid.uuid4().hex[:6]}",  # unrelated to artist_name
+        spotify_id=f"sp_oth_{uuid.uuid4().hex[:10]}",
+        popularity=90,  # higher → would outrank on a title-only search
+    )
+    target = Album(
+        id=uuid.uuid4(),
+        title=shared_title,
+        spotify_id=f"sp_alb_t_{uuid.uuid4().hex[:10]}",
+        release_date=date(2024, 1, 1),
+        popularity=10,  # lower popularity than the decoy on purpose
+    )
+    decoy = Album(
+        id=uuid.uuid4(),
+        title=shared_title,  # same title, different artist
+        spotify_id=f"sp_alb_d_{uuid.uuid4().hex[:10]}",
+        release_date=date(2024, 1, 1),
+        popularity=99,
+    )
+    session.add_all([artist, other, target, decoy])
+    session.flush()
+    session.execute(album_artists_table.insert().values([
+        {"album_id": target.id, "artist_id": artist.id, "role": None},
+        {"album_id": decoy.id, "artist_id": other.id, "role": None},
+    ]))
+    session.flush()
+
+    svc = SearchService(session)
+    res = svc.unified_search(q=f"{artist_name} {shared_title}", limit=20, offset=0)
+
+    album_ids = [str(a.id) for a in res.albums]
+    assert album_ids, "decomposition should surface the artist's album"
+    # Headline: the artist+title intersection lifts the *lower-popularity*
+    # correct album to rank-1, beating a same-titled decoy with far higher
+    # popularity. Without decomposition the decoy (pop 99) would win any
+    # title-based ordering; with it, target (pop 10) is #1.
+    assert album_ids[0] == str(target.id), (
+        "decomposed album (artist+title intersection) must rank #1, ahead of "
+        "the higher-popularity same-titled decoy"
+    )
+    # The decoy may still surface via the whole-string fuzzy (literal) path when
+    # pg_trgm is on — that's a different path — but it must never outrank the
+    # decomposed match.
+    if str(decoy.id) in album_ids:
+        assert album_ids.index(str(decoy.id)) > 0
+
+
 # Suppress unused-import warnings under pyright — Base is imported to ensure
 # the shared metadata is loaded before any query runs.
 _ = Base
