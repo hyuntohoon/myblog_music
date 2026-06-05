@@ -4,6 +4,8 @@ from sqlalchemy import or_, select, text, func
 from typing import Optional, List, Dict, Tuple
 from myblog_shared_db.models import Artist, album_artists_table, track_artists_table
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -45,17 +47,41 @@ class ArtistRepository:
         alias_match = text(
             "EXISTS (SELECT 1 FROM jsonb_array_elements_text(artists.aliases) AS e WHERE e ILIKE :alias_pat)"
         ).bindparams(alias_pat=pat)
-        stmt = (
-            select(Artist)
-            .where(or_(Artist.name.ilike(pat), alias_match))
-            .order_by(
-                Artist.popularity.desc().nullslast(),
-                Artist.followers.desc().nullslast(),
-                Artist.views.desc(),
+        substring_match = or_(Artist.name.ilike(pat), alias_match)
+
+        if settings.SEARCH_USE_PG_TRGM:
+            # V12 pg_trgm: admit a fuzzy fallback so one-edit typos that ILIKE
+            # can't span are recovered. Substring/alias matches always rank above
+            # fuzzy-only ones (tier bool first), and within the substring tier the
+            # original popularity ordering is preserved — so currently-passing
+            # queries keep their exact top-N. similarity is the final tiebreaker
+            # (and the sole within-tier signal for the fuzzy-only tail).
+            sim = func.similarity(Artist.name, q)
+            stmt = (
+                select(Artist)
+                .where(or_(substring_match, sim >= settings.SEARCH_TRGM_THRESHOLD))
+                .order_by(
+                    substring_match.desc(),
+                    Artist.popularity.desc().nullslast(),
+                    Artist.followers.desc().nullslast(),
+                    Artist.views.desc(),
+                    sim.desc().nullslast(),
+                )
+                .limit(limit)
+                .offset(offset)
             )
-            .limit(limit)
-            .offset(offset)
-        )
+        else:
+            stmt = (
+                select(Artist)
+                .where(substring_match)
+                .order_by(
+                    Artist.popularity.desc().nullslast(),
+                    Artist.followers.desc().nullslast(),
+                    Artist.views.desc(),
+                )
+                .limit(limit)
+                .offset(offset)
+            )
         try:
             return list(self.db.execute(stmt).scalars().all())
         except Exception as e:

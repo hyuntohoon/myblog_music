@@ -2,11 +2,13 @@ import logging
 from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.sql.elements import BinaryExpression
 from myblog_shared_db.models import Album, Artist, album_artists_table
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+from app.core.config import settings
 
 class AlbumRepository:
     def __init__(self, db: Session):
@@ -37,14 +39,32 @@ class AlbumRepository:
 
     def search_by_title(self, q: str, limit: int, offset: int) -> List[Album]:
         # 필요 시 artists 미리 로딩해서 N+1 방지
-        stmt = (
-            select(Album)
-            .options(selectinload(Album.artists))
-            .where(Album.title.ilike(f"%{q}%"))
-            .limit(limit)
-            .offset(offset)
-            .order_by(Album.popularity.desc().nullslast())
-        )
+        substring_match = Album.title.ilike(f"%{q}%")
+        base = select(Album).options(selectinload(Album.artists))
+        if settings.SEARCH_USE_PG_TRGM:
+            # V12 pg_trgm fuzzy fallback (mirrors artist_repo) — substring matches
+            # rank first (tier bool), original popularity order preserved within,
+            # similarity as the fuzzy-tail signal + final tiebreaker.
+            sim = func.similarity(Album.title, q)
+            stmt = (
+                base
+                .where(substring_match | (sim >= settings.SEARCH_TRGM_THRESHOLD))
+                .order_by(
+                    substring_match.desc(),
+                    Album.popularity.desc().nullslast(),
+                    sim.desc().nullslast(),
+                )
+                .limit(limit)
+                .offset(offset)
+            )
+        else:
+            stmt = (
+                base
+                .where(substring_match)
+                .limit(limit)
+                .offset(offset)
+                .order_by(Album.popularity.desc().nullslast())
+            )
         return list(self.db.execute(stmt).scalars().all())
 
     # BUG-19: 1-hop expansion — albums for a single matched artist, eager-loaded.

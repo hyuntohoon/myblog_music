@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from sqlalchemy.orm import Session, selectinload
-from sqlalchemy import select
+from sqlalchemy import func, select
 from typing import Iterable, List
 
 from myblog_shared_db.models import Track, Album, track_artists_table
 from app.repositories.artist_repo import ArtistRepository
+from app.core.config import settings
 
 
 class TrackRepository:
@@ -27,17 +28,36 @@ class TrackRepository:
 
     # ✅ 추가: title 기반 트랙 검색(DB)
     def search_by_title(self, q: str, limit: int, offset: int) -> List[Track]:
-        stmt = (
-            select(Track)
-            .options(
-                selectinload(Track.album).selectinload(Album.artists),  # album_title/cover + 대표 artist용
-                selectinload(Track.artists),                            # track artist 우선
-            )
-            .where(Track.title.ilike(f"%{q}%"))
-            .order_by(Track.views.desc(), Track.created_at.desc())
-            .limit(limit)
-            .offset(offset)
+        substring_match = Track.title.ilike(f"%{q}%")
+        base = select(Track).options(
+            selectinload(Track.album).selectinload(Album.artists),  # album_title/cover + 대표 artist용
+            selectinload(Track.artists),                            # track artist 우선
         )
+        if settings.SEARCH_USE_PG_TRGM:
+            # V12 pg_trgm fuzzy fallback (mirrors artist/album repos) — substring
+            # matches first, original views/created_at order preserved within,
+            # similarity as the fuzzy-tail signal + final tiebreaker.
+            sim = func.similarity(Track.title, q)
+            stmt = (
+                base
+                .where(substring_match | (sim >= settings.SEARCH_TRGM_THRESHOLD))
+                .order_by(
+                    substring_match.desc(),
+                    Track.views.desc(),
+                    Track.created_at.desc(),
+                    sim.desc().nullslast(),
+                )
+                .limit(limit)
+                .offset(offset)
+            )
+        else:
+            stmt = (
+                base
+                .where(substring_match)
+                .order_by(Track.views.desc(), Track.created_at.desc())
+                .limit(limit)
+                .offset(offset)
+            )
         return list(self.db.execute(stmt).scalars().all())
 
     # BUG-19 expansion: tracks for a single matched artist, capped at LIMIT

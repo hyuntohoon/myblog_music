@@ -16,6 +16,18 @@ class Settings(BaseSettings):
     # DB
     DATABASE_URL: str = ""
 
+    # Search (FEAT-music-search-recall Step 4 / A1). When true, the unified
+    # search matcher adds a pg_trgm `similarity()` fuzzy fallback to the WHERE
+    # (recovers one-edit typos that ILIKE substring misses) and a similarity
+    # tiebreaker to the ORDER BY. Default false so the code can ship a full
+    # deploy cycle BEFORE prod has the V12 pg_trgm extension — flipping the flag
+    # against a DB without the extension would error. Requires V12 applied.
+    SEARCH_USE_PG_TRGM: bool = False
+    # Minimum trigram similarity for a fuzzy (non-substring) match to be admitted.
+    # At/below the default 0.3 pg_trgm threshold on purpose — '방탄'↔'방탄소년단' =
+    # 0.286 (RFC Step 3 caveat). Tuned against the recall gate.
+    SEARCH_TRGM_THRESHOLD: float = 0.3
+
     # Spotify
     SPOTIFY_CLIENT_ID: str = ""
     SPOTIFY_CLIENT_SECRET: str = ""
