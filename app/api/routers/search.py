@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException, Response
 from sqlalchemy.orm import Session
 from typing import Optional
 
+from app.core.cache import SEARCH_CACHE_CONTROL
 from app.core.db import get_db
 from app.domain.schemas import CandidateSearchResult, UnifiedSearchResult
 from app.services.search_service import SearchService as DBSearchService
@@ -30,6 +31,7 @@ def unified_search(
     album_offset: Optional[int] = Query(None, ge=0, description="Per-bucket offset for the albums slice (overrides `offset`)."),
     track_offset: Optional[int] = Query(None, ge=0, description="Per-bucket offset for the tracks slice (overrides `offset`)."),
     explain: bool = Query(False, description="Dev triage: include per-row ranking debug under `debug` (default response shape is otherwise unchanged)."),
+    response: Response = None,  # type: ignore[assignment]  # injected by FastAPI
     db: Session = Depends(get_db),
 ):
     types = {t.strip().lower() for t in type.split(",") if t.strip()}
@@ -38,7 +40,7 @@ def unified_search(
         raise HTTPException(status_code=400, detail=f"Invalid types: {sorted(invalid)}")
     if not types:
         raise HTTPException(status_code=400, detail="type must not be empty")
-    return DBSearchService(db).unified_search(
+    result = DBSearchService(db).unified_search(
         q=q,
         types=types,
         limit=limit,
@@ -48,6 +50,9 @@ def unified_search(
         track_offset=track_offset,
         explain=explain,
     )
+    # 200-only: validation 400s above raise before reaching here, so they stay uncached.
+    response.headers["Cache-Control"] = SEARCH_CACHE_CONTROL
+    return result
 
 
 # -------------------------------
