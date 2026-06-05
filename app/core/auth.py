@@ -41,7 +41,20 @@ def require_cognito_token(
         header = jwt.get_unverified_header(token)
         kid = header.get("kid")
 
-        jwks = _get_jwks()
+        try:
+            jwks = _get_jwks()
+        except httpx.HTTPError as e:
+            # STAB-2 Step 4: a Cognito JWKS fetch failure (network/timeout/5xx)
+            # is an upstream availability issue, not a bad token. Surface 503
+            # instead of letting the HTTPError escape as an unhandled 500 — this
+            # path is first exercised in prod once ENV=prod gates /candidates.
+            # Not cached (lru_cache only stores successes), so the next request
+            # retries. Mirrors myblog_backend/app/core/auth.py.
+            logger.error("JWKS fetch failed: %s", e)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Auth provider unavailable",
+            )
         key = next((k for k in jwks["keys"] if k["kid"] == kid), None)
         if key is None:
             _get_jwks.cache_clear()

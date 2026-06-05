@@ -54,6 +54,33 @@ class TestCognitoAuthBypass:
             auth.require_cognito_token(credentials=creds)
         assert exc_info.value.status_code == 401
 
+    def test_raises_503_on_jwks_outage_in_prod(self, monkeypatch):
+        # STAB-2 Step 4: a JWKS-fetch failure must surface 503, not an unhandled
+        # 500. Token has a parseable header so it reaches _get_jwks().
+        import base64
+        import json
+
+        import httpx
+        from fastapi import HTTPException
+        from fastapi.security import HTTPAuthorizationCredentials
+        from app.core import auth, config
+
+        def _b64(d):
+            return base64.urlsafe_b64encode(json.dumps(d).encode()).rstrip(b"=").decode()
+
+        monkeypatch.setattr(config.settings, "ENV", "prod")
+        monkeypatch.setattr(config.settings, "COGNITO_USER_POOL_ID", "ap-northeast-2_abc123")
+
+        def _boom():
+            raise httpx.ConnectError("jwks unreachable")
+
+        monkeypatch.setattr(auth, "_get_jwks", _boom)
+        token = f'{_b64({"alg": "RS256", "kid": "x"})}.{_b64({"sub": "u"})}.sig'
+        creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+        with pytest.raises(HTTPException) as exc_info:
+            auth.require_cognito_token(credentials=creds)
+        assert exc_info.value.status_code == 503
+
 
 class TestAlbumServiceExternalUrl:
     """AlbumOut.external_url must be populated from Album.ext_refs['spotify_url']."""
