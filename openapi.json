@@ -961,6 +961,67 @@
         "title": "CandidateTrackItem",
         "type": "object"
       },
+      "ExplainEntry": {
+        "properties": {
+          "bucket": {
+            "title": "Bucket",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "matched_field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Matched Field"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "popularity": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Popularity"
+          },
+          "rank": {
+            "title": "Rank",
+            "type": "integer"
+          },
+          "similarity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Similarity"
+          }
+        },
+        "required": [
+          "bucket",
+          "id",
+          "rank",
+          "path"
+        ],
+        "title": "ExplainEntry",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1192,6 +1253,20 @@
             },
             "title": "Artists",
             "type": "array"
+          },
+          "debug": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ExplainEntry"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Debug"
           },
           "tracks": {
             "items": {
@@ -1779,6 +1854,18 @@
               ],
               "description": "Per-bucket offset for the tracks slice (overrides `offset`).",
               "title": "Track Offset"
+            }
+          },
+          {
+            "description": "Dev triage: include per-row ranking debug under `debug` (default response shape is otherwise unchanged).",
+            "in": "query",
+            "name": "explain",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Dev triage: include per-row ranking debug under `debug` (default response shape is otherwise unchanged).",
+              "title": "Explain",
+              "type": "boolean"
             }
           }
         ],

@@ -314,6 +314,32 @@ def test_multi_token_decomposition_surfaces_artists_album(session):
         assert album_ids.index(str(decoy.id)) > 0
 
 
+def test_explain_mode_attaches_per_row_debug(session):
+    """Step 7 (E1): `explain=True` attaches a `debug` list aligned to the
+    returned rows; the default call leaves `debug` None (shape unchanged).
+    """
+    primary, _guest, _alb_a, _alb_b, _t_main, _t_feat = _seed_minimal_corpus(session)
+    svc = SearchService(session)
+
+    plain = svc.unified_search(q=primary.name, limit=20, offset=0)
+    assert plain.debug is None, "default response must not carry debug"
+
+    res = svc.unified_search(q=primary.name, limit=20, offset=0, explain=True)
+    assert res.debug is not None
+    # exactly one debug entry per returned row across the three buckets
+    assert len(res.debug) == len(res.artists) + len(res.albums) + len(res.tracks)
+
+    artist_dbg = [d for d in res.debug if d.bucket == "artist"]
+    assert artist_dbg, "artist bucket should have debug rows"
+    top = artist_dbg[0]
+    assert top.rank == 1
+    assert top.id == str(primary.id)
+    assert top.path == "literal"           # literal name match, not expansion
+    assert top.matched_field == "name"
+    # ranks are 1-based and contiguous within the bucket
+    assert [d.rank for d in artist_dbg] == list(range(1, len(artist_dbg) + 1))
+
+
 # Suppress unused-import warnings under pyright — Base is imported to ensure
 # the shared metadata is loaded before any query runs.
 _ = Base

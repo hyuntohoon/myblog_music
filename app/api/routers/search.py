@@ -29,6 +29,7 @@ def unified_search(
     artist_offset: Optional[int] = Query(None, ge=0, description="Per-bucket offset for the artists slice (overrides `offset`)."),
     album_offset: Optional[int] = Query(None, ge=0, description="Per-bucket offset for the albums slice (overrides `offset`)."),
     track_offset: Optional[int] = Query(None, ge=0, description="Per-bucket offset for the tracks slice (overrides `offset`)."),
+    explain: bool = Query(False, description="Dev triage: include per-row ranking debug under `debug` (default response shape is otherwise unchanged)."),
     db: Session = Depends(get_db),
 ):
     types = {t.strip().lower() for t in type.split(",") if t.strip()}
@@ -45,6 +46,7 @@ def unified_search(
         artist_offset=artist_offset,
         album_offset=album_offset,
         track_offset=track_offset,
+        explain=explain,
     )
 
 

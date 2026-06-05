@@ -61,11 +61,28 @@ class SearchResult(BaseModel):
     items: List[Union[ArtistItem, AlbumItem]] = Field(default_factory=list)
 
 
+# FEAT-music-search-recall Step 7 (E1): per-row ranking debug entry, surfaced
+# only under `?explain=1` for dev triage. `similarity` is the service-layer
+# bucket score (0–3) used in ranking, not the raw pg_trgm float.
+class ExplainEntry(BaseModel):
+    bucket: str                                  # "artist" | "album" | "track"
+    id: str
+    rank: int                                    # 1-based position within the bucket
+    path: str                                    # "decomposed" | "literal" | "expansion"
+    matched_field: Optional[str] = None          # "name" | "alias" | "title" | "fuzzy"
+    similarity: Optional[float] = None
+    popularity: Optional[int] = None
+
+
 # ✅ 통합 검색 응답 (DB 1번 호출로 3섹션)
 class UnifiedSearchResult(BaseModel):
     artists: List[ArtistItem] = Field(default_factory=list)
     albums: List[AlbumItem] = Field(default_factory=list)
     tracks: List[TrackItem] = Field(default_factory=list)
+    # Step 7 (E1): populated only when the request passes `?explain=1`. None
+    # (omitted intent) in the default response, so existing consumers are
+    # unaffected — this is a purely additive contract change.
+    debug: Optional[List[ExplainEntry]] = None
 
 
 # ------- 앨범 상세용 트랙 / 아티스트 / 앨범 -------

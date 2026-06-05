@@ -7,7 +7,7 @@ from app.repositories.artist_repo import ArtistRepository
 from app.repositories.album_repo import AlbumRepository
 from app.repositories.track_repo import TrackRepository
 
-from app.domain.schemas import UnifiedSearchResult
+from app.domain.schemas import ExplainEntry, UnifiedSearchResult
 
 from app.mappers.album_mapper import AlbumItemMapper
 from app.mappers.artist_mapper import ArtistItemMapper
@@ -93,6 +93,7 @@ class SearchService:
         artist_offset: int | None = None,
         album_offset: int | None = None,
         track_offset: int | None = None,
+        explain: bool = False,
     ) -> UnifiedSearchResult:
         """BUG-19: literal match → 1-hop expansion → cross-bucket dedup →
         path-dependent ranking → per-bucket trim. See `docs/rfcs/BUG-19-*`.
@@ -201,10 +202,20 @@ class SearchService:
         # primary_map covers only the final album rows actually being returned
         primary_map = self._primary_map_for(ranked_albums)
 
+        # Step 7 (E1): per-row ranking debug, only when explicitly requested.
+        debug = None
+        if explain:
+            debug = (
+                _explain_rows("artist", ranked_artists, artist_path, q, {})
+                + _explain_rows("album", ranked_albums, album_path, q, decomp_album_sim)
+                + _explain_rows("track", ranked_tracks, track_path, q, decomp_track_sim)
+            )
+
         return UnifiedSearchResult(
             artists=ArtistItemMapper.to_list(ranked_artists),
             albums=AlbumItemMapper.to_list(ranked_albums, primary_map),
             tracks=TrackItemMapper.to_list(ranked_tracks),
+            debug=debug,
         )
 
     # ---------------- 내부 전용 ---------------- #
@@ -277,6 +288,57 @@ def _merge_paths(*groups: Tuple[list, str]) -> Tuple[list, dict]:
                 path[rid] = label
                 out.append(row)
     return out, path
+
+
+def _matched_field(bucket: str, row, q: str, path: str) -> str | None:
+    """Best-effort label of *why* a row matched, for `?explain=1` triage."""
+    if path == PATH_EXPANSION:
+        return None  # reached via a relation, not a direct text match
+    if path == PATH_DECOMPOSED:
+        return "title"
+    qq = q.lower()
+    if bucket == "artist":
+        name = (getattr(row, "name", "") or "").lower()
+        if qq in name:
+            return "name"
+        aliases = getattr(row, "aliases", None) or []
+        if any(qq in (a or "").lower() for a in aliases):
+            return "alias"
+        return "fuzzy"
+    title = (getattr(row, "title", "") or "").lower()
+    return "title" if qq in title else "fuzzy"
+
+
+def _explain_rows(bucket: str, rows: list, path: dict, q: str, decomp_sim: dict) -> list:
+    """Build ExplainEntry rows for one bucket, aligned to the returned order.
+
+    `similarity` is the service-layer signal actually used to rank the row:
+    the decomposition score for decomposed rows, the literal bucket score for
+    literal rows, and None for expansion rows (relation-derived, not text-ranked).
+    """
+    out: list = []
+    for i, row in enumerate(rows):
+        rid = row.id
+        p = path.get(rid) or PATH_EXPANSION
+        text = getattr(row, "name", None) if bucket == "artist" else getattr(row, "title", None)
+        if p == PATH_DECOMPOSED:
+            sim = decomp_sim.get(rid)
+        elif p == PATH_LITERAL:
+            sim = _similarity(text, q)
+        else:
+            sim = None
+        out.append(
+            ExplainEntry(
+                bucket=bucket,
+                id=str(rid),
+                rank=i + 1,
+                path=p,
+                matched_field=_matched_field(bucket, row, q, p),
+                similarity=float(sim) if sim is not None else None,
+                popularity=getattr(row, "popularity", None),
+            )
+        )
+    return out
 
 
 def _rank_artists(rows: list, path: dict, q: str) -> list:
