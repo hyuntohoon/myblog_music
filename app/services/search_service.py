@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from typing import Set, Tuple
+
+from cachetools import TTLCache
 from sqlalchemy.orm import Session
 
 from app.repositories.artist_repo import ArtistRepository
@@ -14,6 +16,16 @@ from app.mappers.artist_mapper import ArtistItemMapper
 from app.mappers.track_mapper import TrackItemMapper
 
 ALLOWED_TYPES: Set[str] = {"album", "artist", "track"}
+
+# FEAT-music-edge-cache Step 5 — per-process unified-search result cache.
+# DB-protection on the CDN/browser cache-miss path: a warm Lambda container reuses
+# a recent identical search instead of re-hitting Neon. Bounded + short TTL; the
+# staleness budget is minutes (owner-accepted), so no active invalidation. Not
+# shared across containers; no lock needed — a Lambda container handles one event
+# at a time. Caches the immutable UnifiedSearchResult (never mutated downstream).
+_UNIFIED_TTL_SEC = 60
+_UNIFIED_CACHE_MAXSIZE = 256
+_unified_cache: TTLCache = TTLCache(maxsize=_UNIFIED_CACHE_MAXSIZE, ttl=_UNIFIED_TTL_SEC)
 
 # Path labels for the merge/dedup phase. Ranking precedence:
 #   decomposed (most precise multi-token read) > literal > expansion.
@@ -84,6 +96,53 @@ class SearchService:
         self.track_repo = TrackRepository(db, self.artist_repo)
 
     def unified_search(
+        self,
+        *,
+        q: str,
+        limit: int,
+        offset: int,
+        types: Set[str] | None = None,
+        artist_offset: int | None = None,
+        album_offset: int | None = None,
+        track_offset: int | None = None,
+        explain: bool = False,
+    ) -> UnifiedSearchResult:
+        """Cache-fronted entry point (FEAT-music-edge-cache Step 5).
+
+        Returns a recent identical result from the per-process TTL cache when the
+        container is warm; otherwise computes and stores it. The key is the
+        resolved argument tuple (so ``types=None`` and ``types=ALLOWED_TYPES``
+        collapse to one entry). The DB session is intentionally NOT in the key —
+        a cached result is a DB-state snapshot bounded by the TTL.
+        """
+        wanted = types if types is not None else ALLOWED_TYPES
+        key = (
+            q,
+            tuple(sorted(wanted)),
+            limit,
+            offset,
+            artist_offset,
+            album_offset,
+            track_offset,
+            explain,
+        )
+        hit = _unified_cache.get(key)
+        if hit is not None:
+            return hit
+        result = self._compute_unified_search(
+            q=q,
+            limit=limit,
+            offset=offset,
+            types=types,
+            artist_offset=artist_offset,
+            album_offset=album_offset,
+            track_offset=track_offset,
+            explain=explain,
+        )
+        _unified_cache[key] = result
+        return result
+
+    def _compute_unified_search(
         self,
         *,
         q: str,
