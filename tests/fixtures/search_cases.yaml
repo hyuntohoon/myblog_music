@@ -1,0 +1,155 @@
+# Music search recall fixture — FEAT-music-search-recall Step 2 (E2).
+#
+# Versioned set of writer-facing search queries with their expected top-N
+# entities, used by tests/integration/test_search_recall_gate.py to measure
+# Hit@5 / Hit@1 against the live catalog. IDs are real prod catalog ids
+# (single-writer catalog; existing rows keep their ids as the catalog grows).
+#
+# Each case:
+#   query:        the raw string a writer types into the subject search.
+#   category:     multi_token | korean | common_word | typo | alias
+#   type:         which bucket the expected ids live in (artist|album|track),
+#                 OR `empty` for a valid no-result query (expected_ids must be []).
+#   expected_ids: ids that SHOULD surface for this query, most-canonical first.
+#                 hit@1 = expected_ids[0] is rank-1 of its bucket.
+#                 hit@5 = any expected id appears in the bucket's top 5.
+#
+# Baseline (Step 2) is EXPECTED to fail the gate — the failing cases (multi-token
+# decomposition, typo tolerance) are the diff that Steps 4/6 close. See the RFC
+# Decisions log for the recorded baseline numbers.
+#
+# Gate target DB: $RECALL_GATE_DB_URL (falls back to $TEST_DB_URL). When the
+# expected ids are absent from the target catalog the case is reported as a
+# data-miss, not a recall failure — keep this fixture pointed at the prod catalog.
+
+cases:
+  # ---- multi-token (8): "artist album" combined; current code does not decompose ----
+  - query: "방탄소년단 Proof"
+    category: multi_token
+    type: album
+    expected_ids: ["36bac25e-3fa4-473f-b828-5bd45edee144"]
+  - query: "Radiohead OK Computer"
+    category: multi_token
+    type: album
+    expected_ids: ["43a59931-601b-46e7-ae59-82e9adb24f38"]
+  - query: "Kendrick Lamar GNX"
+    category: multi_token
+    type: album
+    expected_ids: ["2d8bcb32-fbce-4cd9-92cf-bf359d196b38"]
+  - query: "The Weeknd Hurry Up Tomorrow"
+    category: multi_token
+    type: album
+    expected_ids: ["7b5d4bf1-f7a0-4ea6-8435-fbae0f17132a"]
+  - query: "Drake Scorpion"
+    category: multi_token
+    type: album
+    expected_ids: ["dea71111-4d12-4e27-b85c-c3cef201a689"]
+  - query: "Imagine Dragons Night Visions"
+    category: multi_token
+    type: album
+    expected_ids: ["e0f00ff4-5f29-4cd7-b445-56c6e71e55d4"]
+  - query: "Radiohead In Rainbows"
+    category: multi_token
+    type: album
+    expected_ids: ["7b752c24-5e5e-4687-963f-aea75a1e8970"]
+  - query: "Radiohead The Bends"
+    category: multi_token
+    type: album
+    expected_ids: ["fc1ab990-d3a5-49d3-9e19-2b7dcb896041"]
+
+  # ---- Korean (8): exact Hangul identity; ILIKE should already cover these ----
+  - query: "방탄소년단"
+    category: korean
+    type: artist
+    expected_ids: ["5293f277-4e6a-4291-b8d7-c9cc04a50c50"]
+  - query: "아이유"
+    category: korean
+    type: artist
+    expected_ids: ["4044c2b4-584b-4a49-b2c0-bde2724d6176"]
+  - query: "제니"
+    category: korean
+    type: artist
+    expected_ids: ["72f214e5-9eb6-4695-8927-5f01c56ee6a4"]
+  - query: "태연"
+    category: korean
+    type: artist
+    expected_ids: ["02328722-5756-4df4-9ea8-bd11a53d6325"]
+  - query: "투모로우바이투게더"
+    category: korean
+    type: artist
+    expected_ids: ["5345d124-9c84-4b30-965b-e71a7d85914c"]
+  - query: "박효신"
+    category: korean
+    type: artist
+    expected_ids: ["92c86116-ef36-4942-a505-5e15f5176e27"]
+  - query: "지코"
+    category: korean
+    type: artist
+    expected_ids: ["0c495d74-582f-4b28-b778-9986308cffab"]
+  - query: "화사"
+    category: korean
+    type: artist
+    expected_ids: ["6135a8ff-0b40-4600-abfa-60e6d95d42a7"]
+
+  # ---- common-word (6): token also appears across many track titles; want the artist ----
+  - query: "future"
+    category: common_word
+    type: artist
+    expected_ids: ["ce0494ed-662f-4483-a3f6-33ca8caa2478"]
+  - query: "oasis"
+    category: common_word
+    type: artist
+    expected_ids: ["f13a67bb-8d68-4f02-a945-936097142df6"]
+  - query: "drake"
+    category: common_word
+    type: artist
+    expected_ids: ["e70c3b0a-bba6-482b-9111-0ffe290808c1"]
+  - query: "nirvana"
+    category: common_word
+    type: artist
+    expected_ids: ["7b235d4e-7e86-4b9d-ae3a-9871aa8055a2"]
+  - query: "coldplay"
+    category: common_word
+    type: artist
+    expected_ids: ["f2fff73a-a7f1-427d-9357-7692a25709dc"]
+  - query: "green day"
+    category: common_word
+    type: artist
+    expected_ids: ["6ef1f70b-00ff-473c-a59b-3adb325928f9"]
+
+  # ---- typo (4): one edit away; ILIKE substring misses, pg_trgm similarity should recover ----
+  - query: "방탕소년단"
+    category: typo
+    type: artist
+    expected_ids: ["5293f277-4e6a-4291-b8d7-c9cc04a50c50"]
+  - query: "Radiohad"
+    category: typo
+    type: artist
+    expected_ids: ["a2910b23-2d93-4715-8c99-52ab76ae06a3"]
+  - query: "Kendric Lamar"
+    category: typo
+    type: artist
+    expected_ids: ["0d8c713e-3f95-47a0-bc31-8d10d38dbc58"]
+  - query: "Coldpaly"
+    category: typo
+    type: artist
+    expected_ids: ["f2fff73a-a7f1-427d-9357-7692a25709dc"]
+
+  # ---- alias (4): non-canonical name in artists.aliases (artist alias path exists today;
+  #      album/track alias cases arrive with Step 5 V13 data) ----
+  - query: "BTS"
+    category: alias
+    type: artist
+    expected_ids: ["5293f277-4e6a-4291-b8d7-c9cc04a50c50"]
+  - query: "방탄"
+    category: alias
+    type: artist
+    expected_ids: ["5293f277-4e6a-4291-b8d7-c9cc04a50c50"]
+  - query: "마이클 잭슨"
+    category: alias
+    type: artist
+    expected_ids: ["61c8fa52-caef-4f2d-87f7-6787e87cd4d6"]
+  - query: "콜드플레이"
+    category: alias
+    type: artist
+    expected_ids: ["f2fff73a-a7f1-427d-9357-7692a25709dc"]
