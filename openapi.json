@@ -357,6 +357,24 @@
         "title": "ArtistHero",
         "type": "object"
       },
+      "ArtistIdItem": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "ArtistIdItem",
+        "type": "object"
+      },
       "ArtistItem": {
         "properties": {
           "cover_url": {
@@ -1455,6 +1473,31 @@
           }
         },
         "summary": "Get Artist By Spotify",
+        "tags": [
+          "Artists"
+        ]
+      }
+    },
+    "/api/music/artists/ids": {
+      "get": {
+        "operationId": "list_artist_ids_api_music_artists_ids_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ArtistIdItem"
+                  },
+                  "title": "Response List Artist Ids Api Music Artists Ids Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Artist Ids",
         "tags": [
           "Artists"
         ]

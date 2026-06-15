@@ -39,6 +39,19 @@ class ArtistRepository:
         ).scalar_one()
         return int(album_count or 0), int(track_count or 0)
 
+    def list_ids_with_albums(self) -> List[Tuple[str, str]]:
+        # Artists with ≥1 catalog album — the set worth a /artist/[id] hub (an
+        # album-less artist would render an empty hub). Used by the front's
+        # build-time getStaticPaths enumeration. group_by dedups artists that
+        # appear on multiple albums.
+        rows = self.db.execute(
+            select(Artist.id, Artist.name)
+            .join(album_artists_table, album_artists_table.c.artist_id == Artist.id)
+            .group_by(Artist.id, Artist.name)
+            .order_by(Artist.name)
+        ).all()
+        return [(str(r.id), r.name) for r in rows]
+
     def search_by_name(self, q: str, limit: int, offset: int) -> List[Artist]:
         # Match on Artist.name (substring, case-insensitive) OR any element of the
         # MusicBrainz-populated `aliases` JSONB array. Aliases let users find

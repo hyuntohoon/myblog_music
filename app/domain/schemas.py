@@ -146,6 +146,16 @@ class ArtistHero(BaseModel):
     status: str = "ready"  # "ready" | "pending" (현재 prod 에선 "ready" 만 발생)
 
 
+# ------- 아티스트 id 목록 (정적 빌드 enumeration용) -------
+# FEAT-artist-page: 프론트 /artist/[id] 의 getStaticPaths 가 전 카탈로그 아티스트
+# (앨범 ≥1)를 빌드타임에 prebuild 하려면 id 목록이 필요한데, 빌드는 DB/런타임 API 를
+# 치지 않는다(콘텐츠 컬렉션만 읽음). 이 엔드포인트가 그 목록을 공급한다.
+# name 은 prebuild 셸의 <title>/sitemap 용(아일랜드 로드 전 표시).
+class ArtistIdItem(BaseModel):
+    id: str
+    name: str
+
+
 # ------- 후보 검색(Spotify-passthrough) 응답 -------
 # 주의: 후보 응답 아이템은 DB 검색용 AlbumItem/ArtistItem과 별개다.
 # DB가 아직 모르는 항목이라 `id` (DB UUID)가 없고 `spotify_id`만 있다.

@@ -231,6 +231,48 @@ class TestArtistTopTracksRoute:
         assert r.status_code == 422  # above maximum
 
 
+class TestArtistIds:
+    """FEAT-artist-page: GET /api/music/artists/ids — catalog-artist id list for
+    the front's build-time /artist/[id] getStaticPaths enumeration."""
+
+    def test_returns_id_name_list(self, monkeypatch):
+        client, artists_router = _client()
+        from app.domain.schemas import ArtistIdItem
+
+        def fake_service(db):
+            real = MagicMock()
+            real.list_artist_ids.return_value = [
+                ArtistIdItem(id="00000000-0000-0000-0000-0000000000aa", name="Vault Engine"),
+                ArtistIdItem(id="00000000-0000-0000-0000-0000000000bb", name="Sala"),
+            ]
+            return real
+
+        monkeypatch.setattr(artists_router, "_service", fake_service)
+
+        r = client.get("/api/music/artists/ids")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert [x["name"] for x in body] == ["Vault Engine", "Sala"]
+        assert body[0]["id"] == "00000000-0000-0000-0000-0000000000aa"
+
+    def test_ids_route_does_not_collide_with_artist_id_path(self, monkeypatch):
+        """`/ids` must be declared before `/{artist_id}` so the literal segment
+        wins — else it lands on get_artist with artist_id='ids' and 404s."""
+        client, artists_router = _client()
+
+        def fake_service(db):
+            real = MagicMock()
+            real.list_artist_ids.return_value = []
+            real.get_hero_by_id.return_value = None  # would 404 if misrouted
+            return real
+
+        monkeypatch.setattr(artists_router, "_service", fake_service)
+
+        r = client.get("/api/music/artists/ids")
+        assert r.status_code == 200  # hit list_artist_ids, not get_artist
+        assert r.json() == []
+
+
 def _hero(a, album_count=0, track_count=0):
     from app.domain.schemas import ArtistHero
     return ArtistHero(
