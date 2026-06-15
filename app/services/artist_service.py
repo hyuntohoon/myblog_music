@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.repositories.album_repo import AlbumRepository
 from app.repositories.artist_repo import ArtistRepository
 from app.repositories.track_repo import TrackRepository
-from app.domain.schemas import ArtistHero, SearchResult, TrackItem
+from app.domain.schemas import ArtistHero, ArtistIdItem, SearchResult, TrackItem
 from app.mappers.album_mapper import AlbumItemMapper
 from app.mappers.track_mapper import TrackItemMapper
 
@@ -62,6 +62,13 @@ class ArtistService:
     def list_top_tracks(self, *, artist_id: str, limit: int) -> list[TrackItem]:
         tracks = self.track_repo.list_top_tracks_by_artist(artist_id, limit=limit)
         return TrackItemMapper.to_list(tracks)
+
+    def list_artist_ids(self) -> list[ArtistIdItem]:
+        # Catalog-artist id list for the front's build-time /artist/[id] enumeration.
+        return [
+            ArtistIdItem(id=i, name=n)
+            for i, n in self.artist_repo.list_ids_with_albums()
+        ]
 
     def _to_hero(self, a) -> ArtistHero:
         album_count, track_count = self.artist_repo.count_albums_and_tracks(str(a.id))

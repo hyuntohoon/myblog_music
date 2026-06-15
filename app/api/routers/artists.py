@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.cache import DETAIL_CACHE_CONTROL
 from app.core.db import get_db
-from app.domain.schemas import ArtistHero, SearchResult, TrackItem
+from app.domain.schemas import ArtistHero, ArtistIdItem, SearchResult, TrackItem
 from app.repositories.album_repo import AlbumRepository
 from app.services.artist_service import ArtistService
 
@@ -14,6 +14,20 @@ router = APIRouter()
 
 def _service(db: Session) -> ArtistService:
     return ArtistService(db, AlbumRepository(db))
+
+
+# FEAT-artist-page: full catalog-artist id list for the front's build-time
+# /artist/[id] getStaticPaths enumeration (the static build reads no DB/runtime
+# API otherwise). Literal route — MUST stay declared before the parametric
+# `/{artist_id}` below so FastAPI matches the literal segment first.
+@router.get("/ids", response_model=List[ArtistIdItem])
+def list_artist_ids(
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    items = _service(db).list_artist_ids()
+    response.headers["Cache-Control"] = DETAIL_CACHE_CONTROL
+    return items
 
 
 @router.get("/{artist_id}/albums", response_model=SearchResult)
