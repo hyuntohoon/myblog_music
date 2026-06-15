@@ -148,6 +148,49 @@ class TestAlbumServiceExternalUrl:
         assert result.album.external_url is None
 
 
+class TestAlbumItemMapperArtistName:
+    """Unified-search album rows must carry artist_name. Regression: the mapper
+    looked up primary_map by the raw uuid.UUID (al.id) while the repo keys it by
+    str(al.id), so every album row dropped to artist_name=None site-wide."""
+
+    def _make_album(self):
+        from datetime import date
+        al = MagicMock()
+        al.id = uuid.uuid4()  # a real UUID object, as the ORM returns
+        al.title = "Palette"
+        al.release_date = date(2017, 4, 21)
+        al.cover_url = None
+        al.album_type = "album"
+        al.spotify_id = "alb_sp"
+        al.ext_refs = {}
+        al.total_tracks = 10
+        al.label = None
+        al.popularity = 50
+        al.best_new = False
+        return al
+
+    def test_artist_name_resolved_with_str_keyed_map(self):
+        from app.mappers.album_mapper import AlbumItemMapper
+
+        al = self._make_album()
+        # primary_map is keyed by str(uuid) — exactly as AlbumRepository builds it.
+        primary_map = {str(al.id): ("IU", "artist_sp_id")}
+
+        rows = AlbumItemMapper.to_list([al], primary_map)
+
+        assert rows[0].artist_name == "IU"
+        assert rows[0].artist_spotify_id == "artist_sp_id"
+
+    def test_artist_name_none_when_album_absent_from_map(self):
+        from app.mappers.album_mapper import AlbumItemMapper
+
+        al = self._make_album()
+        rows = AlbumItemMapper.to_list([al], {})
+
+        assert rows[0].artist_name is None
+        assert rows[0].artist_spotify_id is None
+
+
 class TestAlbumServiceWriteUxBundle:
     """FEAT-write-ux-bundle PR-2: AlbumOut.label + TrackOut.feat_artist_names."""
 

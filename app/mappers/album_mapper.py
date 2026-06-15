@@ -8,8 +8,11 @@ class AlbumItemMapper:
     def to_list(albums, primary_map):
         result: list[AlbumItem] = []
         for al in albums:
-            # primary_map: {album_uuid: (artist_name, artist_spotify_id)}
-            artist_name, artist_sid = (primary_map.get(al.id) or (None, None))
+            # primary_map keys are str(album_uuid) (see AlbumRepository.
+            # get_primary_artist_map). al.id is a uuid.UUID object, so look it up
+            # by str() too — a raw-UUID lookup misses every row and silently drops
+            # artist_name to None for the whole unified-search album bucket.
+            artist_name, artist_sid = (primary_map.get(str(al.id)) or (None, None))
 
             ext_refs = getattr(al, "ext_refs", {}) or {}
             external_url = ext_refs.get("spotify_url")
