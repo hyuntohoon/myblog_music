@@ -88,6 +88,25 @@ def _similarity(name: str | None, q: str) -> int:
     return 0
 
 
+# Continuous relevance ladder from the coarse 0-3 _similarity bucket, so the
+# blend below distinguishes exact/startswith/contains rather than treating them
+# as one tier. Higher = more relevant.
+_REL_LADDER = {3: 1.0, 2: 0.6, 1: 0.35}
+
+
+def _blend(sim: int, popularity: int | None) -> float:
+    """Blended rank score (higher first): relevance-dominant, popularity lifts
+    near-ties. relevance weight 0.7, popularity weight 0.3; Spotify popularity is
+    already 0-100, so pop/100 is the [0,1] norm. Within a path tier this lets a
+    very popular weaker match edge out an obscure stronger one, while a strong
+    relevance signal still leads (an exact match can never lose to a contains
+    match — the 0.7 gap exceeds the max 0.3 popularity swing).
+    """
+    rel = _REL_LADDER.get(sim, 0.1)
+    pop = min(max(popularity or 0, 0), 100) / 100.0
+    return 0.7 * rel + 0.3 * pop
+
+
 class SearchService:
     def __init__(self, db: Session):
         self.db = db
@@ -401,17 +420,17 @@ def _explain_rows(bucket: str, rows: list, path: dict, q: str, decomp_sim: dict)
 
 
 def _rank_artists(rows: list, path: dict, q: str) -> list:
-    """Literal rows ordered by (similarity DESC, popularity DESC), then
-    expansion-only rows by popularity DESC.
+    """Literal rows first (by the relevance+popularity blend), then expansion-only
+    rows (by popularity). The path tier stays a hard gate so a popular but
+    unrelated expansion artist never outranks a literal name match.
     """
     def key(a):
         is_literal = path.get(a.id) == PATH_LITERAL
-        pop = getattr(a, "popularity", None) or 0
+        pop = getattr(a, "popularity", None)
         if is_literal:
             sim = _similarity(getattr(a, "name", None), q)
-            # literal slice first (group 0), high similarity + high popularity first
-            return (0, -sim, -pop)
-        return (1, 0, -pop)
+            return (0, -_blend(sim, pop))
+        return (1, -_blend(0, pop))
     return sorted(rows, key=key)
 
 
@@ -420,39 +439,37 @@ def _rank_albums(rows: list, path: dict, q: str, decomp_sim: dict | None = None)
 
     def key(al):
         p = path.get(al.id)
-        pop = getattr(al, "popularity", None) or 0
+        pop = getattr(al, "popularity", None)
         if p == PATH_DECOMPOSED:
             # Top tier: similarity is against the title_part, so an exact
             # title-token match (e.g. "Proof" in "방탄소년단 Proof") scores 3.
-            return (-1, -decomp_sim.get(al.id, 0), -pop)
+            return (-1, -_blend(decomp_sim.get(al.id, 0), pop))
         if p == PATH_LITERAL:
             sim = _similarity(getattr(al, "title", None), q)
-            return (0, -sim, -pop)
-        return (1, 0, -pop)
+            return (0, -_blend(sim, pop))
+        return (1, -_blend(0, pop))
     return sorted(rows, key=key)
 
 
 def _rank_tracks(rows: list, path: dict, q: str, decomp_sim: dict | None = None) -> list:
-    """No `Track.popularity` column today — path-dependent ranking:
+    """`Track` has no popularity column, so tracks inherit their `Album.popularity`
+    for the relevance+popularity blend (no schema/worker change). Path-tiered:
     - decomposed (Step 6) → similarity to the title_part (top tier)
     - literal title match → similarity to query
-    - expansion (via artist or album) → Album.release_date DESC (newest first)
+    - expansion (via artist or album) → album popularity, newest album as tiebreak
     """
     decomp_sim = decomp_sim or {}
 
     def key(t):
         p = path.get(t.id)
+        # tracks have no own popularity → inherit the album's (loaded for these rows)
+        pop = getattr(getattr(t, "album", None), "popularity", None)
         if p == PATH_DECOMPOSED:
-            return (-1, -decomp_sim.get(t.id, 0), 0)
-        is_literal = p == PATH_LITERAL
-        if is_literal:
+            return (-1, -_blend(decomp_sim.get(t.id, 0), pop), 0)
+        if p == PATH_LITERAL:
             sim = _similarity(getattr(t, "title", None), q)
-            return (0, -sim, 0)
-        # Newest album first; rows with no release_date sort last within the slice.
+            return (0, -_blend(sim, pop), 0)
+        # expansion: album-popularity blend, then newest album first as a tiebreak.
         rd = getattr(getattr(t, "album", None), "release_date", None)
-        # Sort key: smaller comes first → we want newest (largest date) first.
-        # Use a tuple (has_date, neg_ordinal) so dated rows precede null-date rows.
-        if rd is not None:
-            return (1, 0, -rd.toordinal())
-        return (1, 1, 0)
+        return (1, -_blend(0, pop), -(rd.toordinal() if rd is not None else 0))
     return sorted(rows, key=key)
