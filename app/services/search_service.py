@@ -37,6 +37,11 @@ PATH_EXPANSION = "expansion"
 ARTIST_TRACKS_EXPANSION_CAP = 50
 # Per-artist cap on the artist→albums expansion query (mirrors track cap for symmetry).
 ARTIST_ALBUMS_EXPANSION_CAP = 50
+# Cap on HOW MANY literal-artist matches feed the artist→albums/tracks expansion —
+# each one is a separate DB query. literal_artists is relevance-ordered, so the top
+# few cover the intent; expanding all `limit` matches fanned out one query per artist
+# for little gain (Neon compute/slowness audit).
+EXPANSION_LITERAL_ARTIST_CAP = 3
 
 # Step 6 (A2) — structured multi-token decomposition bounds. Only queries with
 # 2–3 whitespace tokens are decomposed; each contributes a small, bounded set of
@@ -216,14 +221,14 @@ class SearchService:
 
         # artist match → that artist's albums + tracks
         if "album" in wanted:
-            for ar in literal_artists:
+            for ar in literal_artists[:EXPANSION_LITERAL_ARTIST_CAP]:
                 exp_albums.extend(
                     self.album_repo.list_by_artist_id_simple(
                         ar.id, limit=ARTIST_ALBUMS_EXPANSION_CAP
                     )
                 )
         if "track" in wanted:
-            for ar in literal_artists:
+            for ar in literal_artists[:EXPANSION_LITERAL_ARTIST_CAP]:
                 exp_tracks.extend(
                     self.track_repo.list_by_artist_id(
                         ar.id, limit=ARTIST_TRACKS_EXPANSION_CAP
