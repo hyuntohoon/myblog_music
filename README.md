@@ -10,6 +10,10 @@
 
 음악 검색·조회 API와 Spotify 동기화 트리거를 담당합니다. **"검색은 DB로 안정적으로, 최신화는 필요할 때만 비동기로"** 라는 핵심 설계를 서비스 경계로 구현한 리포입니다.
 
+### 인증 함정 (FIX-bug-audit-2026-07 WS-A)
+
+`app/core/auth.py`의 `require_cognito_token`은 **backend `app/core/auth.py`와 쌍둥이**입니다. prod에서 `COGNITO_USER_POOL_ID`가 없으면 **fail-closed(503)** — 절대 `or not COGNITO_USER_POOL_ID: return {}`로 우회하지 마세요 (그 fail-open이 `/candidates`의 동기 Spotify 호출 + SQS enqueue를 무인증으로 여는 버그였음). 인증 가드를 고치면 backend/music 양쪽을 같은 PR에서 함께 고칩니다.
+
 ---
 
 ## 핵심 설계
