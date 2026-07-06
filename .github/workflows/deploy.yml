@@ -7,6 +7,15 @@ on:
   pull_request:
     branches: [main]
 
+# Least privilege: default GITHUB_TOKEN is too broad; this workflow only needs to read the repo.
+permissions:
+  contents: read
+
+# Serialize prod deploys so out-of-order pushes can't overwrite a newer Lambda with an older build.
+concurrency:
+  group: music-deploy-prod
+  cancel-in-progress: false
+
 jobs:
   test:
     runs-on: ubuntu-latest
