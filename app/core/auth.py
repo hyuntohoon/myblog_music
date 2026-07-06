@@ -30,8 +30,23 @@ def _get_jwks() -> Dict[str, Any]:
 def require_cognito_token(
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
 ) -> Dict[str, Any]:
-    if settings.ENV in ("local", "dev") or not settings.COGNITO_USER_POOL_ID:
+    if settings.ENV in ("local", "dev"):
         return {}
+
+    # FIX-bug-audit-2026-07 WS-A: in prod a missing pool id is a MISCONFIGURATION,
+    # not a reason to skip auth. Fail CLOSED — never `or not COGNITO_USER_POOL_ID:
+    # return {}`, which silently un-gated /candidates (sync Spotify + SQS enqueue)
+    # if the musicApi Lambda env ever dropped the pool id. Mirrors the fail-closed
+    # posture already in myblog_backend/app/core/auth.py (AUTH-5).
+    if not settings.COGNITO_USER_POOL_ID:
+        logger.error(
+            "COGNITO_USER_POOL_ID unset while ENV=%s — refusing to fail open",
+            settings.ENV,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Auth not configured",
+        )
 
     if credentials is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing token")
