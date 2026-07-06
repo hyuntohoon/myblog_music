@@ -10,7 +10,8 @@ os.environ.setdefault("SPOTIFY_CLIENT_SECRET", "test")
 
 
 class TestCognitoAuthBypass:
-    """require_cognito_token must bypass when ENV is local/dev or pool ID is unset."""
+    """require_cognito_token bypasses only when ENV is local/dev; in prod a
+    missing pool id must fail CLOSED (FIX-bug-audit-2026-07 WS-A)."""
 
     def test_bypasses_when_env_local(self, monkeypatch):
         from app.core import auth, config
@@ -26,12 +27,23 @@ class TestCognitoAuthBypass:
         result = auth.require_cognito_token(credentials=None)
         assert result == {}
 
-    def test_bypasses_when_pool_id_empty(self, monkeypatch):
+    def test_fails_closed_when_pool_id_empty_in_prod(self, monkeypatch):
+        # FIX-bug-audit-2026-07 WS-A: previously this returned {} (fail OPEN),
+        # silently un-gating /candidates if the Lambda env dropped the pool id.
+        # A missing pool id in prod is a misconfiguration → 503, never a no-op.
+        from fastapi import HTTPException
         from app.core import auth, config
         monkeypatch.setattr(config.settings, "ENV", "prod")
         monkeypatch.setattr(config.settings, "COGNITO_USER_POOL_ID", "")
-        result = auth.require_cognito_token(credentials=None)
-        assert result == {}
+        with pytest.raises(HTTPException) as exc_info:
+            auth.require_cognito_token(credentials=None)
+        assert exc_info.value.status_code == 503
+        # Fails closed even when a token IS presented.
+        from fastapi.security import HTTPAuthorizationCredentials
+        creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="x.y.z")
+        with pytest.raises(HTTPException) as exc_info:
+            auth.require_cognito_token(credentials=creds)
+        assert exc_info.value.status_code == 503
 
     def test_raises_401_when_no_token_in_prod(self, monkeypatch):
         from fastapi import HTTPException
