@@ -215,6 +215,33 @@ class CandidateSearchResult(BaseModel):
     tracks_pagination: Optional[CandidatePagination] = None
 
 
+# ------- "오늘, 이 앨범들" (FEAT-today-buckit Step 1) -------
+# 오늘과 같은 월/일에 (과거 연도) 발매된 앨범. release_date IS NOT NULL 인 행만,
+# 올해 발매분은 제외(과거 기념일만). 클릭 → 앨범 창(ARCH-entity-interaction-unify)
+# 이라 album_id + spotify_album_id + 대표 아티스트 id 를 함께 실어 준다.
+class OnThisDayArtist(BaseModel):
+    id: str
+    name: str
+    spotify_id: Optional[str] = None
+
+
+class OnThisDayItem(BaseModel):
+    album_id: str
+    spotify_album_id: Optional[str] = None
+    title: str
+    cover_url: Optional[str] = None
+    release_date: str                 # YYYY-MM-DD (repo filters IS NOT NULL)
+    years_ago: int                    # today.year - release_date.year
+    artists: List[OnThisDayArtist] = Field(default_factory=list)  # primary-first
+
+
+class OnThisDayResult(BaseModel):
+    items: List[OnThisDayItem] = Field(default_factory=list)
+    month: int
+    day: int
+    total: int
+
+
 # ------- 워커/동기화용 입력 -------
 class SyncAlbumIn(BaseModel):
     spotify_album_id: str

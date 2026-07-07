@@ -704,6 +704,83 @@ class TestUnifiedSearchExpansion:
         assert [a.name for a in res.artists] == ["HighPop", "LowPop"]
 
 
+class TestOnThisDay:
+    """FEAT-today-buckit Step 1: get_on_this_day orchestration over a stubbed
+    repo (the SQL month/day filter is exercised by prod smoke — no local DB,
+    [[feedback-local-db-smoke-fallback]])."""
+
+    def _artist(self, name, popularity=50):
+        ar = MagicMock()
+        ar.id = uuid.uuid4()
+        ar.name = name
+        ar.popularity = popularity
+        ar.spotify_id = f"ar_{name}"
+        return ar
+
+    def _album(self, *, title, year, month=7, day=8, popularity=50, artists=None,
+               spotify_id=None, cover=None):
+        from datetime import date
+        al = MagicMock()
+        al.id = uuid.uuid4()
+        al.title = title
+        al.release_date = date(year, month, day)
+        al.cover_url = cover
+        al.spotify_id = spotify_id or f"sp_{title}_{year}"
+        al.popularity = popularity
+        al.artists = artists or []
+        return al
+
+    def _svc(self, albums):
+        from app.services.album_service import AlbumService
+        svc = AlbumService(MagicMock())
+        svc.albums = MagicMock()
+        svc.albums.list_on_this_day.return_value = albums
+        return svc
+
+    def test_years_ago_and_newest_first_ordering(self):
+        from datetime import date
+        ar = self._artist("A")
+        old = self._album(title="Old", year=2001, artists=[ar])
+        new = self._album(title="New", year=2016, artists=[ar])
+        # repo already returns date-desc, but the service re-sorts deterministically
+        res = self._svc([old, new]).get_on_this_day(limit=8, today=date(2026, 7, 8))
+        assert [i.title for i in res.items] == ["New", "Old"]
+        assert res.items[0].years_ago == 10
+        assert res.items[1].years_ago == 25
+        assert (res.month, res.day, res.total) == (7, 8, 2)
+        assert res.items[0].release_date == "2016-07-08"
+
+    def test_dedup_keeps_highest_popularity_edition(self):
+        from datetime import date
+        ar = self._artist("Band")
+        low = self._album(title="Repeat", year=2010, popularity=20, artists=[ar], spotify_id="low")
+        # same (normalized title, primary artist) key, higher popularity → wins
+        high = self._album(title="repeat ", year=2010, popularity=80, artists=[ar], spotify_id="high")
+        res = self._svc([low, high]).get_on_this_day(limit=8, today=date(2026, 7, 8))
+        assert len(res.items) == 1
+        assert res.items[0].spotify_album_id == "high"
+
+    def test_limit_applied_after_dedup(self):
+        from datetime import date
+        ar = self._artist("A")
+        albums = [self._album(title=f"T{i}", year=2000 + i, artists=[ar]) for i in range(20)]
+        res = self._svc(albums).get_on_this_day(limit=5, today=date(2026, 7, 8))
+        assert len(res.items) == 5 and res.total == 5
+
+    def test_item_artists_primary_first(self):
+        from datetime import date
+        low = self._artist("Zoe", popularity=10)
+        high = self._artist("Amy", popularity=90)
+        al = self._album(title="Collab", year=2015, artists=[low, high])
+        res = self._svc([al]).get_on_this_day(limit=8, today=date(2026, 7, 8))
+        assert [a.name for a in res.items[0].artists] == ["Amy", "Zoe"]
+
+    def test_empty_when_no_matches(self):
+        from datetime import date
+        res = self._svc([]).get_on_this_day(limit=8, today=date(2026, 7, 8))
+        assert res.items == [] and res.total == 0 and (res.month, res.day) == (7, 8)
+
+
 class TestCandidateSearchResultSchema:
     """PR-12: /api/music/search/candidates response_model — front consumes typed shape."""
 
