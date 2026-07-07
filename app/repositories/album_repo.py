@@ -80,6 +80,35 @@ class AlbumRepository:
         )
         return list(self.db.execute(stmt).scalars().all())
 
+    # FEAT-today-buckit Step 1: albums released on today's month/day in past
+    # years. Full-date rows only (release_date IS NOT NULL); current year
+    # excluded (past anniversaries only). Ordered newest-anniversary-first;
+    # dedup + limit happen in the service over this capped fetch.
+    def list_on_this_day(
+        self,
+        *,
+        month: int,
+        day: int,
+        exclude_year: int,
+        fetch_cap: int = 200,
+    ) -> List[Album]:
+        stmt = (
+            select(Album)
+            .options(selectinload(Album.artists))
+            .where(
+                Album.release_date.isnot(None),
+                func.extract("month", Album.release_date) == month,
+                func.extract("day", Album.release_date) == day,
+                func.extract("year", Album.release_date) != exclude_year,
+            )
+            .order_by(
+                Album.release_date.desc().nullslast(),
+                Album.popularity.desc().nullslast(),
+            )
+            .limit(fetch_cap)
+        )
+        return list(self.db.execute(stmt).scalars().all())
+
     def upsert_album_min(
         self,
         *,

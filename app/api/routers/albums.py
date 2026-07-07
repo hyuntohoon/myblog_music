@@ -1,11 +1,30 @@
-from fastapi import APIRouter, Path, Depends, Body, Response
+from fastapi import APIRouter, Path, Depends, Body, Response, Query
 from sqlalchemy.orm import Session
-from app.core.cache import DETAIL_CACHE_CONTROL
+from app.core.cache import DETAIL_CACHE_CONTROL, SEARCH_CACHE_CONTROL
 from app.core.db import get_db
 from app.services.album_service import AlbumService
-from app.domain.schemas import AlbumDetail, SyncAlbumIn
+from app.domain.schemas import AlbumDetail, SyncAlbumIn, OnThisDayResult
 
 router = APIRouter()
+
+
+# NB: declared BEFORE "/{album_id}" so FastAPI doesn't capture "on-this-day"
+# as an album id. Public DB-only read (edge_guard; no JWT / no apigateway route).
+@router.get(
+    "/on-this-day",
+    response_model=OnThisDayResult,
+    summary="오늘, 이 앨범들 (같은 월/일에 과거 발매된 앨범)",
+)
+def albums_on_this_day(
+    response: Response,
+    limit: int = Query(8, ge=1, le=50),
+    db: Session = Depends(get_db),
+):
+    result = AlbumService(db).get_on_this_day(limit=limit)
+    # date-derived (rolls at midnight); short cache like search.
+    response.headers["Cache-Control"] = SEARCH_CACHE_CONTROL
+    return result
+
 
 @router.get("/{album_id}", response_model=AlbumDetail)
 def get_album(response: Response, album_id: str = Path(...), db: Session = Depends(get_db)):

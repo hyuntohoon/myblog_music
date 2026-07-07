@@ -1053,6 +1053,122 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "OnThisDayArtist": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "spotify_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spotify Id"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "OnThisDayArtist",
+        "type": "object"
+      },
+      "OnThisDayItem": {
+        "properties": {
+          "album_id": {
+            "title": "Album Id",
+            "type": "string"
+          },
+          "artists": {
+            "items": {
+              "$ref": "#/components/schemas/OnThisDayArtist"
+            },
+            "title": "Artists",
+            "type": "array"
+          },
+          "cover_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cover Url"
+          },
+          "release_date": {
+            "title": "Release Date",
+            "type": "string"
+          },
+          "spotify_album_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spotify Album Id"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "years_ago": {
+            "title": "Years Ago",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "album_id",
+          "title",
+          "release_date",
+          "years_ago"
+        ],
+        "title": "OnThisDayItem",
+        "type": "object"
+      },
+      "OnThisDayResult": {
+        "properties": {
+          "day": {
+            "title": "Day",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OnThisDayItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "month": {
+            "title": "Month",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "month",
+          "day",
+          "total"
+        ],
+        "title": "OnThisDayResult",
+        "type": "object"
+      },
       "SearchResult": {
         "properties": {
           "items": {
@@ -1388,6 +1504,51 @@
           }
         },
         "summary": "Get Album By Spotify",
+        "tags": [
+          "Albums"
+        ]
+      }
+    },
+    "/api/music/albums/on-this-day": {
+      "get": {
+        "operationId": "albums_on_this_day_api_music_albums_on_this_day_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 8,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnThisDayResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "\uc624\ub298, \uc774 \uc568\ubc94\ub4e4 (\uac19\uc740 \uc6d4/\uc77c\uc5d0 \uacfc\uac70 \ubc1c\ub9e4\ub41c \uc568\ubc94)",
         "tags": [
           "Albums"
         ]
