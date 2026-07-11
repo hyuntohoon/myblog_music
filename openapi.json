@@ -1053,6 +1053,128 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "NewReleaseArtist": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "popularity": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Popularity"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "NewReleaseArtist",
+        "type": "object"
+      },
+      "NewReleaseItem": {
+        "properties": {
+          "album_id": {
+            "title": "Album Id",
+            "type": "string"
+          },
+          "artist_popularity": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artist Popularity"
+          },
+          "artists": {
+            "items": {
+              "$ref": "#/components/schemas/NewReleaseArtist"
+            },
+            "title": "Artists",
+            "type": "array"
+          },
+          "cover_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cover Url"
+          },
+          "release_date": {
+            "title": "Release Date",
+            "type": "string"
+          },
+          "reviewed_artist": {
+            "default": false,
+            "title": "Reviewed Artist",
+            "type": "boolean"
+          },
+          "spotify_album_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spotify Album Id"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "album_id",
+          "title",
+          "release_date"
+        ],
+        "title": "NewReleaseItem",
+        "type": "object"
+      },
+      "NewReleasesResult": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/NewReleaseItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "window_days": {
+            "title": "Window Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "window_days",
+          "total"
+        ],
+        "title": "NewReleasesResult",
+        "type": "object"
+      },
       "OnThisDayArtist": {
         "properties": {
           "id": {
@@ -1826,6 +1948,65 @@
         "summary": "Get Artist Top Tracks",
         "tags": [
           "Artists"
+        ]
+      }
+    },
+    "/api/music/feed/new-releases": {
+      "get": {
+        "operationId": "new_releases_api_music_feed_new_releases_get",
+        "parameters": [
+          {
+            "description": "\ubc1c\ub9e4 \uc708\ub3c4\uc6b0 (\uc77c)",
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "description": "\ubc1c\ub9e4 \uc708\ub3c4\uc6b0 (\uc77c)",
+              "maximum": 90,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 12,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NewReleasesResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "\uc0c8 \uc568\ubc94 \ud53c\ub4dc (\ucd5c\uadfc \ubc1c\ub9e4 \uc815\uaddc \uc568\ubc94, \uc544\ud2f0\uc2a4\ud2b8 \uc778\uae30\uc21c)",
+        "tags": [
+          "Feed"
         ]
       }
     },
