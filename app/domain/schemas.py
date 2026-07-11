@@ -242,6 +242,33 @@ class OnThisDayResult(BaseModel):
     total: int
 
 
+# ------- "새 앨범" 피드 (FEAT-release-calendar Track A) -------
+# 최근 days일 내 발매된 정규 앨범(album_type='album')만, 대표 아티스트 인기순.
+# reviewed_artist: 참여 아티스트가 post_artists 직접 링크 또는
+# post_albums→album_artists 경유로 리뷰된 적 있으면 true (홈 카드 마커).
+class NewReleaseArtist(BaseModel):
+    id: str
+    name: str
+    popularity: Optional[int] = None
+
+
+class NewReleaseItem(BaseModel):
+    album_id: str
+    spotify_album_id: Optional[str] = None
+    title: str
+    cover_url: Optional[str] = None
+    release_date: str                 # YYYY-MM-DD (repo filters IS NOT NULL)
+    artists: List[NewReleaseArtist] = Field(default_factory=list)  # primary-first
+    artist_popularity: Optional[int] = None  # primary artist popularity (rank key)
+    reviewed_artist: bool = False
+
+
+class NewReleasesResult(BaseModel):
+    items: List[NewReleaseItem] = Field(default_factory=list)
+    window_days: int
+    total: int
+
+
 # ------- 워커/동기화용 입력 -------
 class SyncAlbumIn(BaseModel):
     spotify_album_id: str

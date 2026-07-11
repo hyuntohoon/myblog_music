@@ -5,7 +5,13 @@ logger = logging.getLogger(__name__)
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.sql.elements import BinaryExpression
-from myblog_shared_db.models import Album, Artist, album_artists_table
+from myblog_shared_db.models import (
+    Album,
+    Artist,
+    album_artists_table,
+    post_albums_table,
+    post_artists_table,
+)
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.core.config import settings
@@ -108,6 +114,47 @@ class AlbumRepository:
             .limit(fetch_cap)
         )
         return list(self.db.execute(stmt).scalars().all())
+
+    # FEAT-release-calendar Track A: full-length albums released on/after
+    # `since`. Full-date rows only; singles/EPs excluded (album_type='album').
+    # Ordered newest-first; dedup + artist-popularity ranking + limit happen in
+    # the service over this capped fetch (same shape as list_on_this_day).
+    def list_new_releases(self, *, since, fetch_cap: int = 300) -> List[Album]:
+        stmt = (
+            select(Album)
+            .options(selectinload(Album.artists))
+            .where(
+                Album.album_type == "album",
+                Album.release_date.isnot(None),
+                Album.release_date >= since,
+            )
+            .order_by(
+                Album.release_date.desc().nullslast(),
+                Album.popularity.desc().nullslast(),
+            )
+            .limit(fetch_cap)
+        )
+        return list(self.db.execute(stmt).scalars().all())
+
+    # FEAT-release-calendar Track A: which of these artists are "reviewed" —
+    # linked to a post directly (post_artists) or via a reviewed album
+    # (post_albums → album_artists). Two cheap IN-queries, union in Python.
+    def reviewed_artist_ids(self, artist_ids: Iterable) -> Set:
+        ids = [i for i in artist_ids if i]
+        if not ids:
+            return set()
+        direct = select(post_artists_table.c.artist_id).where(
+            post_artists_table.c.artist_id.in_(ids)
+        )
+        via_albums = (
+            select(album_artists_table.c.artist_id)
+            .join(
+                post_albums_table,
+                post_albums_table.c.album_id == album_artists_table.c.album_id,
+            )
+            .where(album_artists_table.c.artist_id.in_(ids))
+        )
+        return set(self.db.scalars(direct).all()) | set(self.db.scalars(via_albums).all())
 
     def upsert_album_min(
         self,
