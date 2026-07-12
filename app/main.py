@@ -2,7 +2,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from mangum import Mangum  # 👈 Lambda용 어댑터
-from app.api.routers import search, albums, artists, feed
+from app.api.routers import search, albums, artists, feed, releases
 from app.core.config import settings
 
 app = FastAPI(title="Music Catalog API", version="0.1.0")
@@ -32,6 +32,7 @@ app.include_router(search.router, prefix="/api/music/search", tags=["Search"])
 app.include_router(albums.router, prefix="/api/music/albums", tags=["Albums"])
 app.include_router(artists.router, prefix="/api/music/artists", tags=["Artists"])
 app.include_router(feed.router, prefix="/api/music/feed", tags=["Feed"])
+app.include_router(releases.router, prefix="/api/music/releases", tags=["Releases"])
 
 # 👇 Lambda가 찾을 엔트리포인트
 handler = Mangum(app)
