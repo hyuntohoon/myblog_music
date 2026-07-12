@@ -269,6 +269,35 @@ class NewReleasesResult(BaseModel):
     total: int
 
 
+# ------- 발매 캘린더 (FEAT-release-calendar Track B Step 6) -------
+# artist_release_events는 (source, source_key)당 1행 — 같은 발매를 여러 소스가
+# 관측하면 행이 여러 개다. 읽기 경로에서 (artist_id, release_date, 정규화 제목)
+# 소프트 그룹핑으로 1개 이벤트로 접어 sources에 관측 소스를 나열한다
+# (표시용 그룹핑일 뿐 데이터 병합이 아님 — RFC 설계).
+class ReleaseCalendarEvent(BaseModel):
+    artist_id: str
+    artist_name: str
+    artist_popularity: Optional[int] = None
+    title: str                              # 우선 소스(spotify>musicbrainz>itunes) 표기 제목
+    release_type: Optional[str] = None      # album | ep | single | other
+    status: str                             # announced | released (하나라도 released면 released)
+    release_date: str                       # YYYY-MM-DD
+    sources: List[str] = Field(default_factory=list)  # 정렬된 관측 소스 목록
+    spotify_album_id: Optional[str] = None  # 발매일 확정 시에만 세팅됨
+
+
+class ReleaseCalendarDay(BaseModel):
+    date: str                               # YYYY-MM-DD
+    events: List[ReleaseCalendarEvent] = Field(default_factory=list)
+
+
+class ReleaseCalendarResult(BaseModel):
+    date_from: str                          # 요청 윈도우 에코백 (YYYY-MM-DD)
+    date_to: str
+    days: List[ReleaseCalendarDay] = Field(default_factory=list)
+    total: int                              # 그룹핑 후 이벤트 수
+
+
 # ------- 워커/동기화용 입력 -------
 class SyncAlbumIn(BaseModel):
     spotify_album_id: str
