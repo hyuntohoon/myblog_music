@@ -19,6 +19,8 @@ from app.domain.schemas import (
 # "오늘, 이 앨범들" — over-fetch matching rows, then dedup + limit in-memory so
 # the SQL stays a plain filter. On-this-day sets are small (one month/day slice).
 ON_THIS_DAY_FETCH_CAP = 200
+# Service-level tunables (FEAT-home-strip-ranking Step 1).
+ON_THIS_DAY_RECENCY_WEIGHT = 0.6
 
 
 def _pop(obj) -> int:
@@ -42,8 +44,9 @@ class AlbumService:
         self.tracks = TrackRepository(db, self.artists)
 
     # FEAT-today-buckit Step 1: albums released on today's month/day in past
-    # years (newest anniversary first), deduped by (title, primary artist)
-    # keeping the highest-popularity edition. `today` injectable for tests.
+    # years ranked by a recency×popularity weighted score, deduped by
+    # (title, primary artist) keeping the highest-popularity edition. `today`
+    # injectable for tests.
     def get_on_this_day(self, *, limit: int, today: Optional[date] = None) -> OnThisDayResult:
         today = today or date.today()
         albums = self.albums.list_on_this_day(
@@ -71,9 +74,16 @@ class AlbumService:
             ):
                 best[key] = al
 
+        def ranking_score(al) -> float:
+            years_ago = max(1, today.year - al.release_date.year)
+            album_popularity = al.popularity if al.popularity is not None else 0
+            return ON_THIS_DAY_RECENCY_WEIGHT * (1 / years_ago) + (
+                1 - ON_THIS_DAY_RECENCY_WEIGHT
+            ) * (album_popularity / 100)
+
         deduped = sorted(
             best.values(),
-            key=lambda a: (a.release_date or date.min, _pop(a)),
+            key=lambda a: (ranking_score(a), a.release_date),
             reverse=True,
         )[:limit]
 

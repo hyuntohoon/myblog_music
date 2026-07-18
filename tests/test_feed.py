@@ -98,17 +98,34 @@ class TestNewReleasesService:
         res = self._svc([early, late]).get_new_releases(days=30, limit=12, today=TODAY)
         assert res.items[0].spotify_album_id == "late"
 
-    def test_ranking_artist_popularity_then_release_date(self):
-        pop95 = self._artist("Star", popularity=95)
-        pop40 = self._artist("Indie", popularity=40)
-        older_star = self._album(title="StarOld", release=date(2026, 6, 15), artists=[pop95])
-        newer_star = self._album(title="StarNew", release=date(2026, 7, 1), artists=[pop95])
-        indie = self._album(title="IndieNew", release=date(2026, 7, 10), artists=[pop40])
-        res = self._svc([indie, older_star, newer_star]).get_new_releases(
+    def test_ranking_fresh_unknown_beats_old_popular(self):
+        ar = self._artist("A")
+        fresh = self._album(title="Fresh", release=date(2026, 7, 10), popularity=0,
+                            artists=[ar])
+        old_popular = self._album(title="OldPopular", release=date(2026, 6, 13),
+                                  popularity=100, artists=[ar])
+        res = self._svc([old_popular, fresh]).get_new_releases(
             days=30, limit=12, today=TODAY
         )
-        assert [i.title for i in res.items] == ["StarNew", "StarOld", "IndieNew"]
-        assert res.items[0].artist_popularity == 95
+        assert [i.title for i in res.items] == ["Fresh", "OldPopular"]
+
+    def test_ranking_same_release_date_higher_album_popularity_first(self):
+        ar = self._artist("A")
+        low = self._album(title="Low", release=date(2026, 7, 1), popularity=10,
+                          artists=[ar])
+        high = self._album(title="High", release=date(2026, 7, 1), popularity=90,
+                           artists=[ar])
+        res = self._svc([low, high]).get_new_releases(days=30, limit=12, today=TODAY)
+        assert [i.title for i in res.items] == ["High", "Low"]
+
+    def test_ranking_null_popularity_treated_as_zero(self):
+        ar = self._artist("A")
+        unknown = self._album(title="Unknown", release=date(2026, 7, 1), popularity=None,
+                              artists=[ar])
+        known = self._album(title="Known", release=date(2026, 7, 1), popularity=50,
+                            artists=[ar])
+        res = self._svc([unknown, known]).get_new_releases(days=30, limit=12, today=TODAY)
+        assert [i.title for i in res.items] == ["Known", "Unknown"]
 
     def test_reviewed_artist_flag_on_off(self):
         reviewed_ar = self._artist("Reviewed", popularity=90)

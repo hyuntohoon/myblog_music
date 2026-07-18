@@ -2,7 +2,8 @@
 
 DB-only read off the daily `album_ingest` catalog: no Spotify call anywhere on
 this path (hard rule #9). Over-fetch the window from the repo, then dedup by
-(normalized title, primary artist) and rank by artist popularity in-memory —
+(normalized title, primary artist) and rank by a recency×popularity weighted
+score in-memory —
 same orchestration shape as AlbumService.get_on_this_day.
 """
 from datetime import date, timedelta
@@ -16,6 +17,9 @@ from app.services.album_service import _artists_primary_first, _pop
 
 # 30-day prod window holds ~80-120 album-type rows; 90-day cap fits well under this.
 FEED_FETCH_CAP = 300
+# Service-level tunables (FEAT-home-strip-ranking Step 1).
+FEED_RECENCY_WEIGHT = 0.6
+FEED_RECENCY_HORIZON_DAYS = 30
 
 
 class FeedService:
@@ -57,13 +61,16 @@ class FeedService:
             ):
                 best[key] = al
 
-        def artist_pop(al) -> int:
-            primary = _artists_primary_first(al)
-            return _pop(primary[0]) if primary else -1
+        def ranking_score(al) -> float:
+            days_since_release = (today - al.release_date).days
+            album_popularity = al.popularity if al.popularity is not None else 0
+            return FEED_RECENCY_WEIGHT * (
+                1 - days_since_release / FEED_RECENCY_HORIZON_DAYS
+            ) + (1 - FEED_RECENCY_WEIGHT) * (album_popularity / 100)
 
         ranked = sorted(
             best.values(),
-            key=lambda a: (artist_pop(a), a.release_date or date.min),
+            key=lambda a: (ranking_score(a), a.release_date),
             reverse=True,
         )[:limit]
 
