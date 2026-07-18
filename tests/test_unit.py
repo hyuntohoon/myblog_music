@@ -742,13 +742,39 @@ class TestOnThisDay:
         ar = self._artist("A")
         old = self._album(title="Old", year=2001, artists=[ar])
         new = self._album(title="New", year=2016, artists=[ar])
-        # repo already returns date-desc, but the service re-sorts deterministically
+        # repo already returns date-desc, but the service re-sorts by weighted score
         res = self._svc([old, new]).get_on_this_day(limit=8, today=date(2026, 7, 8))
         assert [i.title for i in res.items] == ["New", "Old"]
         assert res.items[0].years_ago == 10
         assert res.items[1].years_ago == 25
         assert (res.month, res.day, res.total) == (7, 8, 2)
         assert res.items[0].release_date == "2016-07-08"
+
+    def test_ranking_one_year_unknown_beats_twenty_year_popular(self):
+        from datetime import date
+        ar = self._artist("A")
+        recent = self._album(title="Recent", year=2025, popularity=0, artists=[ar])
+        old_popular = self._album(title="OldPopular", year=2006, popularity=100, artists=[ar])
+        res = self._svc([old_popular, recent]).get_on_this_day(
+            limit=8, today=date(2026, 7, 8)
+        )
+        assert [i.title for i in res.items] == ["Recent", "OldPopular"]
+
+    def test_ranking_same_year_higher_album_popularity_first(self):
+        from datetime import date
+        ar = self._artist("A")
+        low = self._album(title="Low", year=2016, popularity=10, artists=[ar])
+        high = self._album(title="High", year=2016, popularity=90, artists=[ar])
+        res = self._svc([low, high]).get_on_this_day(limit=8, today=date(2026, 7, 8))
+        assert [i.title for i in res.items] == ["High", "Low"]
+
+    def test_ranking_null_popularity_treated_as_zero(self):
+        from datetime import date
+        ar = self._artist("A")
+        unknown = self._album(title="Unknown", year=2016, popularity=None, artists=[ar])
+        known = self._album(title="Known", year=2016, popularity=50, artists=[ar])
+        res = self._svc([unknown, known]).get_on_this_day(limit=8, today=date(2026, 7, 8))
+        assert [i.title for i in res.items] == ["Known", "Unknown"]
 
     def test_dedup_keeps_highest_popularity_edition(self):
         from datetime import date
