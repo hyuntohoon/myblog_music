@@ -2,7 +2,7 @@ import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, select, text, func
 from typing import Optional, List, Dict, Tuple
-from myblog_shared_db.models import Artist, album_artists_table, track_artists_table
+from myblog_shared_db.models import AlbumGenre, Artist, Genre, album_artists_table, track_artists_table
 
 from app.core.config import settings
 
@@ -38,6 +38,28 @@ class ArtistRepository:
             .where(track_artists_table.c.artist_id == artist_id)
         ).scalar_one()
         return int(album_count or 0), int(track_count or 0)
+
+    def list_catalog_genres(self, artist_id: str, limit: int = 6) -> List[Tuple[str, str]]:
+        """(label, slug) chips for the artist hub, from OUR taxonomy
+        (RFC-ui-surface-unification Step 5): high-confidence album_genres over
+        the artist's catalog, most-tagged genre first (ties → taxonomy display
+        position). HIGH-only mirrors AlbumBrief.genres (backend); empty when no
+        album of the artist has a high-confidence label — the hub then falls
+        back to the raw Spotify `genres` strings (unlinked)."""
+        rows = self.db.execute(
+            select(Genre.label, Genre.slug)
+            .select_from(album_artists_table)
+            .join(AlbumGenre, AlbumGenre.album_id == album_artists_table.c.album_id)
+            .join(Genre, Genre.id == AlbumGenre.genre_id)
+            .where(
+                album_artists_table.c.artist_id == artist_id,
+                AlbumGenre.confidence == "high",
+            )
+            .group_by(Genre.id, Genre.label, Genre.slug, Genre.position)
+            .order_by(func.count().desc(), Genre.position.asc(), Genre.label.asc())
+            .limit(limit)
+        ).all()
+        return [(r.label, r.slug) for r in rows]
 
     def list_ids_with_albums(self) -> List[Tuple[str, str]]:
         # Artists with ≥1 catalog album — the set worth a /artist/[id] hub (an

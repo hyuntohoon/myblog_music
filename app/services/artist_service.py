@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.repositories.album_repo import AlbumRepository
 from app.repositories.artist_repo import ArtistRepository
 from app.repositories.track_repo import TrackRepository
-from app.domain.schemas import ArtistHero, ArtistIdItem, SearchResult, TrackItem
+from app.domain.schemas import ArtistHero, ArtistIdItem, CatalogGenreItem, SearchResult, TrackItem
 from app.mappers.album_mapper import AlbumItemMapper
 from app.mappers.track_mapper import TrackItemMapper
 
@@ -78,6 +78,10 @@ class ArtistService:
             spotify_id=a.spotify_id,
             photo_url=a.photo_url,
             genres=list(a.genres or []),
+            catalog_genres=[
+                CatalogGenreItem(label=lb, slug=sl)
+                for lb, sl in self.artist_repo.list_catalog_genres(str(a.id))
+            ],
             followers=a.followers,
             popularity=a.popularity,
             spotify_url=a.spotify_url,
