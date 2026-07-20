@@ -136,12 +136,25 @@ class AlbumDetail(BaseModel):
 # `status` 는 by-spotify lookup 의 ready/pending 분기를 위한 필드.
 # 현 시점에는 absorb-tracking 테이블이 없어 pending 상태를 직접 못 만들지만,
 # 스키마에는 유지해서 향후 비동기 흡수 도입 시 응답 모양만 확장하면 되게 둔다.
+class CatalogGenreItem(BaseModel):
+    """One taxonomy genre chip — label for display, slug for the /genres/?g=
+    deep link (RFC-ui-surface-unification Step 5)."""
+    label: str
+    slug: str
+
+
 class ArtistHero(BaseModel):
     id: Optional[str] = None
     name: str
     spotify_id: Optional[str] = None
     photo_url: Optional[str] = None
     genres: List[str] = Field(default_factory=list)
+    # RFC-ui-surface-unification Step 5: the artist's genres in OUR taxonomy,
+    # derived from high-confidence album_genres over the artist's catalog
+    # (most-tagged first). Replaces the raw Spotify ko-KR `genres` strings as
+    # the hub's chip row wherever non-empty — every chip links into the genre
+    # map. Empty when no album of the artist has a high-confidence label.
+    catalog_genres: List[CatalogGenreItem] = Field(default_factory=list)
     followers: Optional[int] = None
     popularity: Optional[int] = None
     spotify_url: Optional[str] = None
