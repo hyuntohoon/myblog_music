@@ -47,6 +47,17 @@
             ],
             "title": "Album Type"
           },
+          "artist_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artist Id"
+          },
           "artist_name": {
             "anyOf": [
               {

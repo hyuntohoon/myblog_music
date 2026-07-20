@@ -26,6 +26,10 @@ class AlbumItem(BaseModel):
     spotify_id: Optional[str] = None
     artist_name: Optional[str] = None
     artist_spotify_id: Optional[str] = None
+    # RFC-ui-surface-unification Step 4: primary artist's catalog id so album
+    # rows can link straight to the artist hub (spotify_id alone can't build a
+    # real href). None for pre-catalog candidate rows (Spotify raw data).
+    artist_id: Optional[str] = None
     external_url: Optional[str] = None
     total_tracks: Optional[int] = None
     label: Optional[str] = None

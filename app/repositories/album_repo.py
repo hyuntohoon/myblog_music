@@ -216,8 +216,10 @@ class AlbumRepository:
         return album, artists
 
     # ✅ 앨범들에 대한 '대표 아티스트'(첫 번째 아티스트) 맵 생성
-    # 반환: { album_id(str): (artist_name or None, artist_spotify_id or None) }
-    def get_primary_artist_map(self, album_ids: List[str]) -> Dict[str, Tuple[Optional[str], Optional[str]]]:
+    # 반환: { album_id(str): (artist_name or None, artist_spotify_id or None,
+    #         artist_id(str) or None) } — artist_id는 RFC-ui-surface-unification
+    # Step 4 (album rows link to the artist hub).
+    def get_primary_artist_map(self, album_ids: List[str]) -> Dict[str, Tuple[Optional[str], Optional[str], Optional[str]]]:
         if not album_ids:
             return {}
 
@@ -225,7 +227,7 @@ class AlbumRepository:
         # (popularity DESC NULLS LAST, name ASC) so first-seen row is
         # deterministic. Matches in-mapper heuristic in track_mapper.
         rows = self.db.execute(
-            select(Album.id, Artist.name, Artist.spotify_id)
+            select(Album.id, Artist.name, Artist.spotify_id, Artist.id)
             .join(album_artists_table, album_artists_table.c.album_id == Album.id)
             .join(Artist, album_artists_table.c.artist_id == Artist.id)
             .where(Album.id.in_(album_ids))
@@ -235,11 +237,11 @@ class AlbumRepository:
             )
         ).all()
 
-        result: Dict[str, Tuple[Optional[str], Optional[str]]] = {}
-        for al_id, ar_name, ar_spid in rows:
+        result: Dict[str, Tuple[Optional[str], Optional[str], Optional[str]]] = {}
+        for al_id, ar_name, ar_spid, ar_id in rows:
             # 첫 번째로 본 아티스트를 대표로 고정
             if str(al_id) not in result:
-                result[str(al_id)] = (ar_name, ar_spid)
+                result[str(al_id)] = (ar_name, ar_spid, str(ar_id))
         return result
 
     def get_existing_spotify_ids(self, ids: Iterable[str]) -> Set[str]:
