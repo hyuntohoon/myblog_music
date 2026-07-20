@@ -1,8 +1,7 @@
 """FEAT-release-calendar Track B Step 6 — GET /api/music/releases/calendar.
 
-Service units run over a stubbed ReleaseEventRepository (the SQL WHERE itself
-is exercised by prod smoke — no local DB, [[feedback-local-db-smoke-fallback]]);
-the seam these tests exercise is the display soft-grouping on
+Repository visibility is exercised against SQLite, while service units use a
+stubbed ReleaseEventRepository to cover display soft-grouping on
 (artist_id, release_date, normalized title). Router tests mirror
 tests/test_feed.py (TestClient + mocked service — param validation, defaults,
 Cache-Control on 200 only).
@@ -13,6 +12,10 @@ import os
 import uuid
 from datetime import date, timedelta
 from unittest.mock import MagicMock
+
+import pytest
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import Session
 
 os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://x:x@localhost/x")
 os.environ.setdefault("SPOTIFY_CLIENT_ID", "test")
@@ -64,6 +67,102 @@ def _svc(rows):
     svc.events = MagicMock()
     svc.events.list_events.return_value = rows
     return svc
+
+
+@pytest.fixture
+def sqlite_release_repository():
+    from app.repositories.release_event_repo import ReleaseEventRepository
+
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                CREATE TABLE artists (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    popularity INTEGER
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                CREATE TABLE artist_release_events (
+                    artist_id TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    release_type TEXT,
+                    release_date DATE NOT NULL,
+                    status TEXT NOT NULL,
+                    spotify_album_id TEXT
+                )
+                """
+            )
+        )
+
+    with Session(engine) as db:
+        yield ReleaseEventRepository(db), db
+
+    engine.dispose()
+
+
+@pytest.mark.parametrize(
+    ("artist_popularity", "status", "is_public"),
+    [
+        pytest.param(None, "announced", False, id="unknown-popularity-announced"),
+        pytest.param(49, "announced", False, id="low-popularity-announced"),
+        pytest.param(50, "announced", True, id="popularity-floor-announced"),
+        pytest.param(1, "released", True, id="low-popularity-released"),
+    ],
+)
+def test_public_calendar_visibility_respects_popularity_and_release_status(
+    sqlite_release_repository,
+    artist_popularity,
+    status,
+    is_public,
+):
+    repository, db = sqlite_release_repository
+    artist_id = str(uuid.uuid4())
+    db.execute(
+        text(
+            """
+            INSERT INTO artists (id, name, popularity)
+            VALUES (:id, :name, :popularity)
+            """
+        ),
+        {
+            "id": artist_id,
+            "name": "Boundary Artist",
+            "popularity": artist_popularity,
+        },
+    )
+    db.execute(
+        text(
+            """
+            INSERT INTO artist_release_events (
+                artist_id, source, title, release_type, release_date, status,
+                spotify_album_id
+            ) VALUES (
+                :artist_id, 'musicbrainz', 'Boundary Release', 'album',
+                :release_date, :status, NULL
+            )
+            """
+        ),
+        {
+            "artist_id": artist_id,
+            "release_date": date(2026, 7, 18),
+            "status": status,
+        },
+    )
+
+    rows = repository.list_events(date_from=FROM, date_to=TO)
+
+    assert bool(rows) is is_public
+    if is_public:
+        assert rows[0]["title"] == "Boundary Release"
+        assert rows[0]["status"] == status
 
 
 class TestNormalizeTitle:
