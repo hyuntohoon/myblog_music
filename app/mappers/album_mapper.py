@@ -12,7 +12,7 @@ class AlbumItemMapper:
             # get_primary_artist_map). al.id is a uuid.UUID object, so look it up
             # by str() too — a raw-UUID lookup misses every row and silently drops
             # artist_name to None for the whole unified-search album bucket.
-            artist_name, artist_sid = (primary_map.get(str(al.id)) or (None, None))
+            artist_name, artist_sid, artist_id = (primary_map.get(str(al.id)) or (None, None, None))
 
             ext_refs = getattr(al, "ext_refs", {}) or {}
             external_url = ext_refs.get("spotify_url")
@@ -27,6 +27,7 @@ class AlbumItemMapper:
                     spotify_id=al.spotify_id,
                     artist_name=artist_name,
                     artist_spotify_id=artist_sid,
+                    artist_id=artist_id,
                     external_url=external_url,
                     total_tracks=getattr(al, "total_tracks", None),
                     label=getattr(al, "label", None),

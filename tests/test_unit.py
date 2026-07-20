@@ -186,12 +186,14 @@ class TestAlbumItemMapperArtistName:
 
         al = self._make_album()
         # primary_map is keyed by str(uuid) — exactly as AlbumRepository builds it.
-        primary_map = {str(al.id): ("IU", "artist_sp_id")}
+        artist_uuid = str(uuid.uuid4())
+        primary_map = {str(al.id): ("IU", "artist_sp_id", artist_uuid)}
 
         rows = AlbumItemMapper.to_list([al], primary_map)
 
         assert rows[0].artist_name == "IU"
         assert rows[0].artist_spotify_id == "artist_sp_id"
+        assert rows[0].artist_id == artist_uuid
 
     def test_artist_name_none_when_album_absent_from_map(self):
         from app.mappers.album_mapper import AlbumItemMapper
@@ -201,6 +203,7 @@ class TestAlbumItemMapperArtistName:
 
         assert rows[0].artist_name is None
         assert rows[0].artist_spotify_id is None
+        assert rows[0].artist_id is None
 
 
 class TestAlbumServiceWriteUxBundle:
