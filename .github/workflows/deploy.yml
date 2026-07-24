@@ -101,3 +101,24 @@ jobs:
             --function-name "${FUNCTION_NAME:-musicApi}" \
             --zip-file fileb://bundle.zip \
             --architectures arm64
+
+      # OPS-delivery-safety-gates Step 3 — post-deploy health smoke (health-only,
+      # no credentials). Code is already live here, so this is detect-and-alert-fast
+      # + rollback trigger, NOT a pre-cutover gate. A red run means: roll back
+      # (re-run the previous green deploy, or re-push the previous bundle).
+      # Retries absorb update propagation / cold start.
+      - name: Post-deploy smoke (health)
+        env:
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          URL="https://www.ratemymusic.blog/api/music/search/unified?q=radiohead&type=album&limit=1&_cb=${RUN_ID}"
+          for i in 1 2 3 4 5; do
+            if curl -fsS --max-time 20 "$URL" | tee /tmp/search.json | grep -q '"albums"'; then
+              echo "Music health OK."
+              exit 0
+            fi
+            echo "attempt $i: health not green yet, retrying in 5s…"
+            sleep 5
+          done
+          echo "::error::Music health smoke FAILED — /api/music/search/unified did not return a JSON body with 'albums'. Roll back the deploy."
+          exit 1
