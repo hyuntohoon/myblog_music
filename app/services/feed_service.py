@@ -11,9 +11,11 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.domain.schemas import NewReleaseArtist, NewReleaseItem, NewReleasesResult
 from app.repositories.album_repo import AlbumRepository
 from app.services.album_service import _artists_primary_first, _pop
+from app.services.compilation_filter import is_compilation_noise
 
 # 30-day prod window holds ~80-120 album-type rows; 90-day cap fits well under this.
 FEED_FETCH_CAP = 300
@@ -40,6 +42,23 @@ class FeedService:
             al
             for al in albums
             if al.album_type == "album" and al.release_date and al.release_date >= since
+        ]
+
+        # DATA-release-noise Step 1: drop budget classical compilations
+        # ("065 Piano Essentials" etc.) that crowd out real new releases. Read-side
+        # only; the rows remain in the catalog. See compilation_filter for the
+        # conservative predicate (genuine classical performances pass through).
+        budget_labels = frozenset(settings.COMP_FILTER_BUDGET_LABELS)
+        albums = [
+            al
+            for al in albums
+            if not is_compilation_noise(
+                title=al.title,
+                label=getattr(al, "label", None),
+                n_artists=len(getattr(al, "artists", None) or []),
+                max_artists=settings.COMP_FILTER_MAX_ARTISTS,
+                budget_labels=budget_labels,
+            )
         ]
 
         # dedup on (normalized title, primary artist): keep the highest-popularity

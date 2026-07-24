@@ -46,6 +46,8 @@ def _row(
     spotify_album_id=None,
     artist_name="Artist",
     artist_popularity=50,
+    album_label=None,
+    album_n_artists=0,
 ):
     return {
         "artist_id": artist_id,
@@ -57,6 +59,8 @@ def _row(
         "spotify_album_id": spotify_album_id,
         "artist_name": artist_name,
         "artist_popularity": artist_popularity,
+        "album_label": album_label,
+        "album_n_artists": album_n_artists,
     }
 
 
@@ -100,6 +104,14 @@ def sqlite_release_repository():
                 )
                 """
             )
+        )
+        # DATA-release-noise Step 1: the read SQL LEFT JOINs the catalog album
+        # (label + credited-artist count) for the compilation filter.
+        connection.execute(
+            text("CREATE TABLE albums (id TEXT PRIMARY KEY, spotify_id TEXT, label TEXT)")
+        )
+        connection.execute(
+            text("CREATE TABLE album_artists (album_id TEXT NOT NULL, artist_id TEXT NOT NULL)")
         )
 
     with Session(engine) as db:
@@ -268,6 +280,50 @@ class TestCalendarSoftGrouping:
         assert res.date_from == "2026-07-01" and res.date_to == "2026-07-31"
         # repo got the exact window
         # (service passes params through unchanged)
+
+
+class TestCalendarCompilationFilter:
+    """DATA-release-noise Step 1: budget classical compilations are hidden;
+    genuine classical performances (few artists, non-comp label) pass through."""
+
+    def test_multi_artist_comp_dropped(self):
+        rows = [
+            _row(artist_id=uuid.uuid4(), source="spotify", status="released",
+                 title="Sunrise Prelude: Classical Masterpieces",
+                 release_date=date(2026, 7, 6), spotify_album_id="sp1",
+                 artist_name="Franz Schubert", artist_popularity=62,
+                 album_label="UME - Global Clearing House", album_n_artists=13),
+            _row(artist_id=uuid.uuid4(), source="spotify", status="released",
+                 title="new avatar", release_date=date(2026, 7, 10),
+                 spotify_album_id="sp2", artist_name="Kelela",
+                 artist_popularity=57, album_label="Warp Records", album_n_artists=1),
+        ]
+        res = _svc(rows).get_calendar(date_from=FROM, date_to=TO)
+        assert res.total == 1
+        assert res.days[0].events[0].title == "new avatar"
+
+    def test_real_classical_performance_survives(self):
+        # Named-conductor Requiem: 8 performers, non-comp label — must NOT be hidden.
+        rows = [
+            _row(artist_id=uuid.uuid4(), source="spotify", status="released",
+                 title="Mozart: Requiem; Mass in C Minor", release_date=date(2026, 7, 4),
+                 spotify_album_id="sp3", artist_name="Wolfgang Amadeus Mozart",
+                 artist_popularity=74, album_label="Deutsche Grammophon (DG)",
+                 album_n_artists=8),
+        ]
+        res = _svc(rows).get_calendar(date_from=FROM, date_to=TO)
+        assert res.total == 1
+        assert res.days[0].events[0].title == "Mozart: Requiem; Mass in C Minor"
+
+    def test_announced_row_uses_title_signal(self):
+        # Pre-confirm row has no joined album (label None, n 0) → title decides.
+        rows = [
+            _row(artist_id=uuid.uuid4(), source="musicbrainz", status="announced",
+                 title="065 Piano Essentials: Au Printemps", release_date=date(2026, 7, 4),
+                 artist_name="Franz Schubert", artist_popularity=62),
+        ]
+        res = _svc(rows).get_calendar(date_from=FROM, date_to=TO)
+        assert res.total == 0
 
 
 class TestCalendarRouter:

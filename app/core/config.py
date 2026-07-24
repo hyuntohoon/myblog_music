@@ -28,6 +28,20 @@ class Settings(BaseSettings):
     # 0.286 (RFC Step 3 caveat). Tuned against the recall gate.
     SEARCH_TRGM_THRESHOLD: float = 0.3
 
+    # DATA-release-noise Step 1: read-side classical-compilation filter tunables
+    # (app/services/compilation_filter.py). A catalog row is hidden from the home
+    # feed + /releases/ calendar if it credits >= COMP_FILTER_MAX_ARTISTS distinct
+    # artists, OR carries a pure-compilation label, OR matches a compilation title
+    # family. Read-side only — rows stay in the catalog, so this is reversible.
+    # Threshold 10 spares genuine classical performances (max seen: 8 artists on a
+    # named-conductor Requiem); labels are ones that only ever press comps.
+    COMP_FILTER_MAX_ARTISTS: int = 10
+    COMP_FILTER_BUDGET_LABELS: list[str] = [
+        "UME - Global Clearing House",
+        "Novus Promusica",
+        "Naxos Special Projects",
+    ]
+
     # Spotify
     SPOTIFY_CLIENT_ID: str = ""
     SPOTIFY_CLIENT_SECRET: str = ""

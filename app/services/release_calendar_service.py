@@ -24,12 +24,14 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.domain.schemas import (
     ReleaseCalendarDay,
     ReleaseCalendarEvent,
     ReleaseCalendarResult,
 )
 from app.repositories.release_event_repo import ReleaseEventRepository
+from app.services.compilation_filter import is_compilation_noise
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +64,23 @@ class ReleaseCalendarService:
 
     def get_calendar(self, *, date_from: date, date_to: date) -> ReleaseCalendarResult:
         rows = self.events.list_events(date_from=date_from, date_to=date_to)
+
+        # DATA-release-noise Step 1: drop budget classical compilations before
+        # soft-grouping (same predicate + tunables as the home feed). label +
+        # album_n_artists come from the repo's LEFT JOIN on the confirmed album;
+        # announced rows fall back to the title signal. Read-side only.
+        budget_labels = frozenset(settings.COMP_FILTER_BUDGET_LABELS)
+        rows = [
+            r
+            for r in rows
+            if not is_compilation_noise(
+                title=r["title"],
+                label=r.get("album_label"),
+                n_artists=r.get("album_n_artists") or 0,
+                max_artists=settings.COMP_FILTER_MAX_ARTISTS,
+                budget_labels=budget_labels,
+            )
+        ]
 
         # Soft-group on (artist_id, release_date, normalized title).
         groups: Dict[Tuple[str, str, str], List[Dict[str, Any]]] = {}
