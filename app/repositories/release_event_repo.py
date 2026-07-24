@@ -34,9 +34,17 @@ _SELECT_EVENTS = text(
            re.status,
            re.spotify_album_id,
            a.name        AS artist_name,
-           a.popularity  AS artist_popularity
+           a.popularity  AS artist_popularity,
+           al.label      AS album_label,
+           (SELECT count(*) FROM album_artists aa WHERE aa.album_id = al.id)
+                         AS album_n_artists
       FROM artist_release_events re
       JOIN artists a ON a.id = re.artist_id
+      -- DATA-release-noise Step 1: confirmed rows carry spotify_album_id, so join
+      -- the catalog album to surface label + credited-artist count for the read-
+      -- side compilation filter. Pre-confirm (announced) rows have no album yet →
+      -- LEFT JOIN leaves album_label NULL / album_n_artists 0 (title signal only).
+      LEFT JOIN albums al ON al.spotify_id = re.spotify_album_id
      WHERE re.release_date >= :date_from
        AND re.release_date <= :date_to
        AND (a.popularity >= :public_pop_min OR re.status = 'released')

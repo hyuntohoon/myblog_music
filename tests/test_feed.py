@@ -39,7 +39,7 @@ class TestNewReleasesService:
         return ar
 
     def _album(self, *, title, release, popularity=50, artists=None,
-               album_type="album", spotify_id=None, cover=None):
+               album_type="album", spotify_id=None, cover=None, label=None):
         al = MagicMock()
         al.id = uuid.uuid4()
         al.title = title
@@ -49,6 +49,7 @@ class TestNewReleasesService:
         al.spotify_id = spotify_id or f"sp_{title}_{release}"
         al.popularity = popularity
         al.artists = artists or []
+        al.label = label
         return al
 
     def _svc(self, albums, reviewed_ids=None):
@@ -154,6 +155,39 @@ class TestNewReleasesService:
     def test_empty_window(self):
         res = self._svc([]).get_new_releases(days=30, limit=12, today=TODAY)
         assert res.items == [] and res.total == 0 and res.window_days == 30
+
+    # DATA-release-noise Step 1: budget classical compilations are dropped from
+    # the home strip; genuine classical performances pass through.
+    def test_multi_artist_compilation_dropped(self):
+        composers = [self._artist(n, popularity=70) for n in
+                     ("Bach", "Mozart", "Beethoven", "Chopin", "Liszt",
+                      "Brahms", "Handel", "Vivaldi", "Debussy", "Ravel")]
+        comp = self._album(title="A Walk by the Sea: Classical Masterpieces",
+                           release=date(2026, 7, 1), popularity=68, artists=composers,
+                           label="UME - Global Clearing House")
+        real = self._album(title="Real Album", release=date(2026, 7, 1),
+                           artists=[self._artist("Band")], label="Big Label")
+        res = self._svc([comp, real]).get_new_releases(days=30, limit=12, today=TODAY)
+        assert [i.title for i in res.items] == ["Real Album"]
+
+    def test_numbered_essentials_title_dropped_even_single_artist(self):
+        comp = self._album(title='"065 Piano Essentials": Au Printemps',
+                           release=date(2026, 7, 4), popularity=62,
+                           artists=[self._artist("Franz Schubert", popularity=62)],
+                           label="Novus Promusica")
+        res = self._svc([comp]).get_new_releases(days=30, limit=12, today=TODAY)
+        assert res.items == []
+
+    def test_real_classical_performance_survives(self):
+        # 8 performers under a named conductor on a non-comp label — kept.
+        performers = [self._artist(n, popularity=74) for n in
+                      ("Mozart", "Nézet-Séguin", "COE", "RIAS", "D'Angelo",
+                       "Volle", "Fang", "Barbeyrac")]
+        perf = self._album(title="Mozart: Requiem; Mass in C Minor",
+                           release=date(2026, 7, 1), popularity=37,
+                           artists=performers, label="Deutsche Grammophon (DG)")
+        res = self._svc([perf]).get_new_releases(days=30, limit=12, today=TODAY)
+        assert [i.title for i in res.items] == ["Mozart: Requiem; Mass in C Minor"]
 
 
 class TestNewReleasesRouter:
