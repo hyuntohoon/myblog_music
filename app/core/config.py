@@ -11,7 +11,13 @@ logger = logging.getLogger(__name__)
 
 class Settings(BaseSettings):
     APP_NAME: str = "music-backend"
-    ENV: str = "local"
+    # SEC-2 (OPS-safety-net-drift Step 3): absence must be restrictive. ENV
+    # gates the require_cognito_token bypass and the CORS localhost origins —
+    # with a "local" default, a Lambda that ever lost its ENV var would
+    # silently disable auth. Local dev opts in explicitly via ENV=local.
+    # Twin of myblog_backend/app/core/config.py (auth guard bug class: a fix
+    # must land in both repos in the same sweep).
+    ENV: str = "prod"
 
     # DB
     DATABASE_URL: str = ""

@@ -8,7 +8,15 @@ DBs and must each see their own result, not the first one cached. Clear it befor
 every test. Lazy import keeps config off the collection path
 ([[reference-backend-test-config-import-collection]]).
 """
+import os
+
 import pytest
+
+# SEC-2 (OPS-safety-net-drift Step 3): the config default for ENV is now
+# "prod" (absence = restrictive), so the test suite must OPT IN to the
+# local bypass explicitly instead of inheriting it — mirrors
+# myblog_backend/tests/conftest.py. setdefault so CI can override.
+os.environ.setdefault("ENV", "local")
 
 
 @pytest.fixture(autouse=True)
