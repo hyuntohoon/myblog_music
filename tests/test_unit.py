@@ -20,6 +20,30 @@ class TestCognitoAuthBypass:
         result = auth.require_cognito_token(credentials=None)
         assert result == {}
 
+    # SEC-2 (OPS-safety-net-drift Step 3): ENV *absence* must be restrictive.
+    # The tests below construct Settings the way an ENV-less runtime would —
+    # the config default used to be "local", meaning a Lambda that lost its
+    # ENV var silently disabled auth (the one missing-config path that failed
+    # open). Twin of myblog_backend/tests/test_auth_failclosed.py.
+
+    def test_env_absent_defaults_to_prod(self, monkeypatch):
+        from app.core.config import Settings
+        monkeypatch.delenv("ENV", raising=False)
+        fresh = Settings(_env_file=None)
+        assert fresh.ENV == "prod"
+
+    def test_env_absent_guard_rejects_not_bypasses(self, monkeypatch):
+        # Default settings ⇒ raise (503 unconfigured / 401 missing token,
+        # depending on ambient pool id) — never the local-bypass {}.
+        from fastapi import HTTPException
+        from app.core import auth
+        from app.core.config import Settings
+        monkeypatch.delenv("ENV", raising=False)
+        monkeypatch.setattr(auth, "settings", Settings(_env_file=None))
+        with pytest.raises(HTTPException) as exc_info:
+            auth.require_cognito_token(credentials=None)
+        assert exc_info.value.status_code in (401, 503)
+
     def test_bypasses_when_env_dev(self, monkeypatch):
         from app.core import auth, config
         monkeypatch.setattr(config.settings, "ENV", "dev")
