@@ -29,20 +29,30 @@ class TrackRepository:
     # ✅ 추가: title 기반 트랙 검색(DB)
     def search_by_title(self, q: str, limit: int, offset: int) -> List[Track]:
         substring_match = Track.title.ilike(f"%{q}%")
-        base = select(Track).options(
-            selectinload(Track.album).selectinload(Album.artists),  # album_title/cover + 대표 artist용
-            selectinload(Track.artists),                            # track artist 우선
+        # DATA-catalog-noise Step 1a: rank by album popularity, not Track.views —
+        # views is 0 on every row (dead signal), so ordering fell through to
+        # created_at and bulk classical compilations won on volume. album_id is
+        # NOT NULL (0 orphan tracks in prod), so the INNER JOIN drops nothing.
+        # views stays as a trailing tiebreak in case it is ever populated.
+        base = (
+            select(Track)
+            .join(Album, Track.album_id == Album.id)
+            .options(
+                selectinload(Track.album).selectinload(Album.artists),  # album_title/cover + 대표 artist용
+                selectinload(Track.artists),                            # track artist 우선
+            )
         )
         if settings.SEARCH_USE_PG_TRGM:
             # V12 pg_trgm fuzzy fallback (mirrors artist/album repos) — substring
-            # matches first, original views/created_at order preserved within,
-            # similarity as the fuzzy-tail signal + final tiebreaker.
+            # matches first, album-popularity order within, similarity as the
+            # fuzzy-tail signal + final tiebreaker.
             sim = func.similarity(Track.title, q)
             stmt = (
                 base
                 .where(substring_match | (sim >= settings.SEARCH_TRGM_THRESHOLD))
                 .order_by(
                     substring_match.desc(),
+                    Album.popularity.desc().nullslast(),
                     Track.views.desc(),
                     Track.created_at.desc(),
                     sim.desc().nullslast(),
@@ -54,7 +64,11 @@ class TrackRepository:
             stmt = (
                 base
                 .where(substring_match)
-                .order_by(Track.views.desc(), Track.created_at.desc())
+                .order_by(
+                    Album.popularity.desc().nullslast(),
+                    Track.views.desc(),
+                    Track.created_at.desc(),
+                )
                 .limit(limit)
                 .offset(offset)
             )
