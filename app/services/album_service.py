@@ -3,6 +3,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
+from app.core.kst import kst_today
 from app.repositories.album_repo import AlbumRepository
 from app.repositories.artist_repo import ArtistRepository
 from app.repositories.track_repo import TrackRepository
@@ -48,7 +49,10 @@ class AlbumService:
     # (title, primary artist) keeping the highest-popularity edition. `today`
     # injectable for tests.
     def get_on_this_day(self, *, limit: int, today: Optional[date] = None) -> OnThisDayResult:
-        today = today or date.today()
+        # KST day, not `date.today()` — the Lambda runs UTC, so between 00:00 and
+        # 09:00 KST the month/day slice below was still yesterday's and readers
+        # got the wrong "이 날의 앨범" (A-4 twin; see app/core/kst.py).
+        today = today or kst_today()
         albums = self.albums.list_on_this_day(
             month=today.month,
             day=today.day,

@@ -12,6 +12,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.kst import kst_today
 from app.domain.schemas import NewReleaseArtist, NewReleaseItem, NewReleasesResult
 from app.repositories.album_repo import AlbumRepository
 from app.services.album_service import _artists_primary_first, _pop
@@ -33,7 +34,11 @@ class FeedService:
     def get_new_releases(
         self, *, days: int, limit: int, today: Optional[date] = None
     ) -> NewReleasesResult:
-        today = today or date.today()
+        # Same KST rule as the rest of the read path. The impact here is milder
+        # than get_on_this_day — a UTC "today" only widens the rolling window by
+        # a day for 9 hours — but leaving the last `date.today()` behind is how
+        # this drifts back.
+        today = today or kst_today()
         since = today - timedelta(days=days)
         albums = self.albums.list_new_releases(since=since, fetch_cap=FEED_FETCH_CAP)
         # Defensive re-filter with the same predicates as the repo SQL — keeps
