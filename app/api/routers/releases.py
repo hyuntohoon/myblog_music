@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.cache import SEARCH_CACHE_CONTROL
 from app.core.db import get_db
+from app.core.kst import kst_today
 from app.domain.schemas import ReleaseCalendarResult
 from app.services.release_calendar_service import ReleaseCalendarService
 
@@ -38,7 +39,10 @@ def release_calendar(
     db: Session = Depends(get_db),
 ):
     if date_from is None:
-        date_from = date.today().replace(day=1)
+        # "이번 달" is the KST month — on the 1st, a UTC `date.today()` would
+        # still be last month until 09:00 KST and default the grid to the wrong
+        # month (A-4 twin; see app/core/kst.py).
+        date_from = kst_today().replace(day=1)
     if date_to is None:
         date_to = date_from.replace(
             day=monthrange(date_from.year, date_from.month)[1]
