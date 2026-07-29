@@ -64,6 +64,66 @@ jobs:
           python scripts/export_openapi.py
           git diff --exit-code openapi.json
 
+  # Real-DB suite against the Neon test branch (synced to prod schema 2026-07-29).
+  # Split from `test` because it needs a live DB. Mirrors the backend job.
+  #
+  # A skip is treated as a FAILURE: this suite reported green while fully skipped
+  # for months, which is the pattern that let two isrc write-path defects reach
+  # prod. `recall_gate` is deselected — it is a measurement harness that reports
+  # Hit@5 against whatever catalog it is pointed at, not a pass/fail gate, and on
+  # the test branch it measures missing data rather than lost recall (pytest.ini).
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Configure git auth for private package
+        env:
+          SHARED_DB_PAT: ${{ secrets.SHARED_DB_PAT }}
+        run: git config --global url."https://${SHARED_DB_PAT}@github.com/".insteadOf "https://github.com/"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-test.txt
+
+      - name: Run integration suite
+        env:
+          TEST_DB_URL: ${{ secrets.TEST_DB_URL }}
+          DATABASE_URL: "postgresql+psycopg://x:x@localhost/x"
+        run: |
+          if [ -z "$TEST_DB_URL" ]; then
+            echo "::error::TEST_DB_URL secret is not set on this repo — the integration suite would self-skip and report a false green."
+            exit 1
+          fi
+          # The secret must be a full SQLAlchemy URL, not the Neon password on its
+          # own (the console shows the two side by side, and pasting the password
+          # yields an opaque "Could not parse SQLAlchemy URL"). Never echo the
+          # value, a slice of it, or its length: a wrong secret is usually wrong by
+          # BEING a raw credential.
+          case "$TEST_DB_URL" in
+            postgresql://*|postgresql+*://*) ;;
+            *)
+              echo "::error::TEST_DB_URL is set but does not start with postgresql:// — it looks like the Neon password pasted on its own. Set the full connection string: postgresql+psycopg://USER:PASSWORD@HOST/neondb?sslmode=require"
+              exit 1
+              ;;
+          esac
+          # pipefail is NOT on by default in Actions' `bash -e` — without it the
+          # pipeline exits with tee's status and a failing pytest reads as green.
+          set -o pipefail
+          pytest tests/integration -m "integration and not recall_gate" -rs | tee /tmp/integration.txt
+
+      - name: Fail on DB-reason skips
+        run: |
+          if grep -E '^SKIPPED' /tmp/integration.txt | grep -qiE 'TEST_DB_URL|test branch|not deployed|schema'; then
+            echo "::error::a suite skipped for a DB/schema reason — treat as failure, not green:"
+            grep -E '^SKIPPED' /tmp/integration.txt
+            exit 1
+          fi
+          echo "No DB-reason skips."
+
   deploy:
     needs: [test, contract]
     if: github.event_name == 'push'

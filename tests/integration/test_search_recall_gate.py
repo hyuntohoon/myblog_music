@@ -44,6 +44,12 @@ HIT1_TARGET = 0.60
 
 pytestmark = [
     pytest.mark.integration,
+    # Measurement harness, not a pass/fail gate — see the module docstring. CI runs
+    # `-m "integration and not recall_gate"`, because pointed at the Neon test
+    # branch this reports Hit@5 3/30: the branch holds 660 tracks and none of the
+    # prod ids this fixture names, so the misses are missing DATA, not lost recall.
+    # A meaningful run needs RECALL_GATE_DB_URL on the prod catalog, read-only.
+    pytest.mark.recall_gate,
     pytest.mark.skipif(
         not _GATE_DB_URL,
         reason="recall gate needs RECALL_GATE_DB_URL (or TEST_DB_URL) — Neon catalog",
