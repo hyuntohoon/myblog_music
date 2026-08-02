@@ -2,6 +2,7 @@ from fastapi import APIRouter, Path, Depends, Body, Response, Query
 from sqlalchemy.orm import Session
 from app.core.cache import DETAIL_CACHE_CONTROL, SEARCH_CACHE_CONTROL
 from app.core.db import get_db
+from app.core.ids import parse_uuid_or_404
 from app.services.album_service import AlbumService
 from app.domain.schemas import AlbumDetail, SyncAlbumIn, OnThisDayResult
 
@@ -29,7 +30,8 @@ def albums_on_this_day(
 @router.get("/{album_id}", response_model=AlbumDetail)
 def get_album(response: Response, album_id: str = Path(...), db: Session = Depends(get_db)):
     svc = AlbumService(db)
-    detail = svc.get_album_detail(album_id)  # raises 404 before we set the header
+    # A-3: catalog ids are uuid columns — parse here or Postgres 500s on the junk.
+    detail = svc.get_album_detail(parse_uuid_or_404(album_id, detail="album not found"))
     response.headers["Cache-Control"] = DETAIL_CACHE_CONTROL
     return detail
 

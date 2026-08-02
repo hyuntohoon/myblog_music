@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.cache import DETAIL_CACHE_CONTROL
 from app.core.db import get_db
+from app.core.ids import parse_uuid_or_404
 from app.domain.schemas import ArtistHero, ArtistIdItem, SearchResult, TrackItem
 from app.repositories.album_repo import AlbumRepository
 from app.services.artist_service import ArtistService
@@ -38,7 +39,9 @@ def get_artist_albums(
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ):
-    result = _service(db).list_albums_by_artist(artist_id=artist_id, limit=limit, offset=offset)
+    # A-3: parse before the id can reach a uuid column (see app/core/ids.py).
+    aid = parse_uuid_or_404(artist_id, detail="artist not found")
+    result = _service(db).list_albums_by_artist(artist_id=aid, limit=limit, offset=offset)
     response.headers["Cache-Control"] = DETAIL_CACHE_CONTROL
     return result
 
@@ -72,7 +75,8 @@ def get_artist_top_tracks(
     limit: int = Query(10, ge=1, le=50),
     db: Session = Depends(get_db),
 ):
-    result = _service(db).list_top_tracks(artist_id=artist_id, limit=limit)
+    aid = parse_uuid_or_404(artist_id, detail="artist not found")
+    result = _service(db).list_top_tracks(artist_id=aid, limit=limit)
     response.headers["Cache-Control"] = DETAIL_CACHE_CONTROL
     return result
 
@@ -83,7 +87,7 @@ def get_artist(
     artist_id: str = Path(...),
     db: Session = Depends(get_db),
 ):
-    hero = _service(db).get_hero_by_id(artist_id)
+    hero = _service(db).get_hero_by_id(parse_uuid_or_404(artist_id, detail="artist not found"))
     if not hero:
         # 404 stays uncached (UUID truly-unknown / pending) — same rationale as by-spotify.
         raise HTTPException(status_code=404, detail="artist not found")
