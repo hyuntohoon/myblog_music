@@ -10,4 +10,4 @@ greenlet>=3.0
 boto3
 cachetools>=5.3
 python-jose[cryptography]>=3.3
-myblog-shared-db @ git+https://github.com/hyuntohoon/myblog_shared_db.git@v0.26.0
+myblog-shared-db @ git+https://github.com/hyuntohoon/myblog_shared_db.git@8319a564562365fc7d449357e93a7ab5c530b2f2

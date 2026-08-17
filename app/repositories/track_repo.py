@@ -20,7 +20,7 @@ class TrackRepository:
                 select(Track)
                 .options(selectinload(Track.artists))
                 .where(Track.album_id == album_id)
-                .order_by(Track.track_no.asc().nullslast())
+                .order_by(Track.disc_no.asc().nullslast(), Track.track_no.asc().nullslast())
             )
             .scalars()
             .all()
@@ -111,6 +111,7 @@ class TrackRepository:
                 Track.views.desc(),
                 Album.popularity.desc().nullslast(),
                 Album.release_date.desc().nullslast(),
+                Track.disc_no.asc().nullslast(),
                 Track.track_no.asc().nullslast(),
             )
             .limit(limit)
@@ -129,7 +130,7 @@ class TrackRepository:
                 selectinload(Track.artists),
             )
             .where(Track.album_id.in_(album_ids))
-            .order_by(Track.track_no.asc().nullslast())
+            .order_by(Track.disc_no.asc().nullslast(), Track.track_no.asc().nullslast())
         )
         return list(self.db.execute(stmt).scalars().all())
 
