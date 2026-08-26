@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     # Cognito (auth for /candidates)
     COGNITO_REGION: str = "ap-northeast-2"
     COGNITO_USER_POOL_ID: str = ""
+    # SEC-system-hardening: Cognito app clients whose tokens this service accepts,
+    # comma-separated. Empty is a MISCONFIGURATION and fails closed (503), never
+    # "accept any client in the pool" — see app/core/auth.py. Set from
+    # infra/lambda.tf so a client can be added or retired without a code deploy.
+    COGNITO_ALLOWED_CLIENT_IDS: str = ""
 
     # AWS / SQS
     AWS_DEFAULT_REGION: str = "ap-northeast-2"

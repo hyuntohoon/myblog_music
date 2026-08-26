@@ -74,6 +74,12 @@ class TestCognitoAuthBypass:
         from app.core import auth, config
         monkeypatch.setattr(config.settings, "ENV", "prod")
         monkeypatch.setattr(config.settings, "COGNITO_USER_POOL_ID", "ap-northeast-2_abc123")
+        # SEC-system-hardening: an unset app-client allowlist is a
+        # misconfiguration and fails closed (503), so a prod-shaped settings
+        # object must pin it the way infra/lambda.tf does.
+        monkeypatch.setattr(
+            config.settings, "COGNITO_ALLOWED_CLIENT_IDS", "test-spa-client"
+        )
         with pytest.raises(HTTPException) as exc_info:
             auth.require_cognito_token(credentials=None)
         assert exc_info.value.status_code == 401
@@ -84,6 +90,12 @@ class TestCognitoAuthBypass:
         from app.core import auth, config
         monkeypatch.setattr(config.settings, "ENV", "prod")
         monkeypatch.setattr(config.settings, "COGNITO_USER_POOL_ID", "ap-northeast-2_abc123")
+        # SEC-system-hardening: an unset app-client allowlist is a
+        # misconfiguration and fails closed (503), so a prod-shaped settings
+        # object must pin it the way infra/lambda.tf does.
+        monkeypatch.setattr(
+            config.settings, "COGNITO_ALLOWED_CLIENT_IDS", "test-spa-client"
+        )
         monkeypatch.setattr(auth, "_get_jwks", lambda: {"keys": []})
         creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="not.a.valid.jwt")
         with pytest.raises(HTTPException) as exc_info:
