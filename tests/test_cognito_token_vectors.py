@@ -11,18 +11,17 @@ support that has never worked, because `jwt.decode` is called without
 pins that so the dead branch cannot be "fixed" into a real hole by someone
 passing `audience=` and concluding it works because access tokens still pass.
 
-This is the `myblog_music` copy of the backend vectors (minus the owner tiers
-music does not have, and calling `require_cognito_token` because music has no
-factored-out `verify_token`). The guards are duplicated on purpose; their vectors
-must be too, or the copies drift where the duplication exists to protect.
-
-This matters more here than in the backend: `infra/apigateway.tf` attaches the
-Cognito authorizer to 51 of 55 routes and to NONE of `/api/music/*`, so for this
-service the in-process guard is the only gate there is.
+This is the `myblog_music` copy of the backend vectors, calling
+`require_cognito_token` because music has no factored-out `verify_token`. The
+guards are duplicated on purpose; their vectors must be too, or the copies drift
+where the duplication exists to protect. It matters more here: `infra/apigateway.tf`
+attaches the Cognito authorizer to 51 of 55 routes and to NONE of `/api/music/*`,
+so for this service the in-process guard is the only gate there is.
 """
 
 from __future__ import annotations
 
+from functools import lru_cache
 from types import SimpleNamespace
 
 import httpx
@@ -94,6 +93,18 @@ def _status(token: str) -> int:
     return 200
 
 
+def _reject(token: str) -> tuple[int, str]:
+    """(status, detail). The detail matters: several distinct checks all answer
+    401, so a vector that asserts only the status cannot tell which one fired —
+    and therefore cannot notice when one of them is deleted and another happens
+    to reject the same fixture for a different reason."""
+    try:
+        _verify(token)
+    except HTTPException as exc:
+        return exc.status_code, str(exc.detail)
+    return 200, ""
+
+
 # --- the happy path, which nothing asserted before -------------------------
 
 def test_valid_access_token_is_accepted():
@@ -158,11 +169,16 @@ def test_no_clock_skew_is_granted():
 # --- token_use ------------------------------------------------------------
 
 def test_refresh_token_use_is_rejected():
-    assert _status(tok.mint(token_use="refresh")) == 401
+    # Asserted on the detail, not just 401. With `client_id` present and valid,
+    # the ONLY thing that can reject this token is the token_use check — and if
+    # that check is deleted, the client binding rejects it anyway (a non-access
+    # token_use makes the guard read `aud`, which is absent), with the same 401.
+    # Status alone therefore cannot see the check disappear.
+    assert _reject(tok.mint(token_use="refresh")) == (401, "Invalid token type")
 
 
 def test_missing_token_use_is_rejected():
-    assert _status(tok.mint(token_use=None)) == 401
+    assert _reject(tok.mint(token_use=None)) == (401, "Invalid token type")
 
 
 def test_id_token_is_rejected_because_aud_is_never_supplied():
@@ -183,11 +199,11 @@ def test_token_from_an_unlisted_app_client_is_rejected():
     # other client in the pool — including one added years from now with
     # different scopes — is accepted by every route the authorizer does not
     # cover, which is all of myblog_music and every backend GET.
-    assert _status(tok.mint(client_id=tok.OTHER_CLIENT_ID)) == 401
+    assert _reject(tok.mint(client_id=tok.OTHER_CLIENT_ID)) == (401, "Invalid token client")
 
 
 def test_token_with_no_client_id_is_rejected():
-    assert _status(tok.mint(client_id=None, omit=["client_id"])) == 401
+    assert _reject(tok.mint(client_id=None, omit=["client_id"])) == (401, "Invalid token client")
 
 
 def test_allowlist_accepts_any_of_several_configured_clients(monkeypatch):
@@ -241,18 +257,66 @@ def test_kid_miss_does_not_refetch_the_jwks_on_every_request(monkeypatch):
     # An unknown `kid` used to clear the cache before returning 401, and the
     # header is attacker-controlled and needs no valid signature — so N junk
     # requests produced N outbound fetches to Cognito, from the owner's own
-    # account. Key rotation still resolves, just at a bounded rate.
+    # account. On the backend this is reachable for every /api/* path through
+    # edge_guard, not just the guarded routes.
+    #
+    # This counts REAL fetches, not a counter the guard increments itself: the
+    # stub is lru_cache-wrapped exactly as the production _get_jwks is, so a
+    # fetch happens only when something actually clears the cache. An earlier
+    # version of this test asserted auth._jwks_refresh_count(), which sits next
+    # to the cache_clear() rather than being caused by it — deleting the
+    # cache_clear() left that assertion green.
     fetches = {"n": 0}
 
-    def counting_jwks():
+    @lru_cache(maxsize=1)
+    def cached_jwks():
         fetches["n"] += 1
         return tok.jwks()
 
-    monkeypatch.setattr(auth, "_get_jwks", _stub_jwks(counting_jwks))
+    monkeypatch.setattr(auth, "_get_jwks", cached_jwks)
 
     for _ in range(20):
         assert _status(tok.mint(kid="rogue-kid")) == 401
 
-    assert auth._jwks_refresh_count() <= 1, (
-        f"{auth._jwks_refresh_count()} JWKS refreshes from 20 unauthenticated requests"
-    )
+    # 1 initial fetch + at most 1 throttled refresh across 20 requests.
+    assert fetches["n"] <= 2, f"{fetches['n']} JWKS fetches from 20 unauthenticated requests"
+
+
+def test_a_rotated_signing_key_is_picked_up_once_the_window_elapses(monkeypatch):
+    # The other half of the throttle, and the one that fails if the cache is
+    # never cleared at all: serve a JWKS that does NOT contain the token's kid,
+    # then swap in one that does. The guard must recover on a later request.
+    # With the interval at 0 the throttle always permits a refresh, so this
+    # isolates "does the refetch happen" from "how often is it allowed".
+    monkeypatch.setattr(auth, "_JWKS_REFRESH_MIN_INTERVAL_SECONDS", 0.0)
+
+    served = {"jwks": tok.jwks(kid="stale-kid")}
+
+    @lru_cache(maxsize=1)
+    def cached_jwks():
+        return served["jwks"]
+
+    monkeypatch.setattr(auth, "_get_jwks", cached_jwks)
+
+    token = tok.mint()  # signed with the fixture key, kid = tok.KID
+    assert _reject(token) == (401, "Unknown token key")
+
+    served["jwks"] = tok.jwks()  # "rotation": the real kid is now published
+    assert _verify(token)["sub"] == "user-sub-1"
+
+
+def test_missing_token_with_an_unset_allowlist_is_503_not_401():
+    # The no-credential path has its own copy of the fail-closed check. Deleting
+    # it left the whole 710-test suite green, so it is pinned here: a Lambda that
+    # lost COGNITO_ALLOWED_CLIENT_IDS must report a misconfiguration, not dress it
+    # up as an ordinary missing-token 401. Same posture as the pool-id check three
+    # lines above it in auth.py (STAB-2 / AUTH-5).
+    import app.core.auth as a
+
+    a.settings = _settings(COGNITO_ALLOWED_CLIENT_IDS="")
+    try:
+        with pytest.raises(HTTPException) as ei:
+            a.require_cognito_token(credentials=None)
+        assert ei.value.status_code == 503
+    finally:
+        a.settings = _settings()
