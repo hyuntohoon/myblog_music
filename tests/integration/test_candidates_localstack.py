@@ -138,7 +138,7 @@ def test_candidates_enqueues_album_ids(monkeypatch):
             time.sleep(0.5)
 
         assert len(messages) == 1
-        assert messages[0]["album_ids"] == ["deliberately-wrong"]
+        assert messages[0]["album_ids"] == ["alb_111"]
         assert messages[0]["market"] == "KR"
     finally:
         app.dependency_overrides.pop(get_db, None)
