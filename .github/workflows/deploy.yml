@@ -138,7 +138,11 @@ jobs:
           echo "No DB-reason skips."
 
   deploy:
-    needs: [test, contract]
+    # `integration` is in this list on purpose. Until 2026-08-28 it was not, so a
+    # merge shipped the Lambda while the DB suite was still running — the PR gate
+    # blocked the merge, but nothing blocked the deploy that followed it. Twin of
+    # myblog_backend#167. Measured cost: the integration job finishes in ~50s.
+    needs: [test, contract, integration]
     # Production deploy is main-only. `on.push.branches` already filters to main
     # today, but the guard is stated explicitly because this job now carries
     # `id-token: write`: if `workflow_dispatch` is ever added here — the manual
