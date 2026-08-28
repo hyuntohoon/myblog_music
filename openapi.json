@@ -2431,7 +2431,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Spotify \ud6c4\ubcf4 \uac80\uc0c9(\uc77d\uae30 \uc804\uc6a9 + \uc568\ubc94 \ub3d9\uae30\ud654 enqueue; deprecated side effect)",
+        "summary": "Spotify \ud6c4\ubcf4 \uac80\uc0c9(\uc77d\uae30 \uc804\uc6a9)",
         "tags": [
           "Search"
         ]

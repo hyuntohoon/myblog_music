@@ -9,7 +9,6 @@ from app.core.db import get_db
 from app.domain.schemas import CandidateSearchResult, UnifiedSearchResult
 from app.services.search_service import SearchService as DBSearchService
 
-from app.clients.sqs_client import SqsClient
 from app.core.auth import require_cognito_token
 from app.services.cadidate_search_service import CandidateSearchService
 from app.services.search_service import ALLOWED_TYPES
@@ -56,13 +55,13 @@ def unified_search(
 
 
 # -------------------------------
-# 후보 검색 (+ 앨범 동기화 enqueue) - legacy transition path
+# Spotify 후보 검색. Queue dispatch is an explicit POST under /sync-requests.
 # -------------------------------
 @router.get(
     "/candidates",
     response_model=CandidateSearchResult,
     response_model_exclude_none=True,
-    summary="Spotify 후보 검색(읽기 전용 + 앨범 동기화 enqueue; deprecated side effect)",
+    summary="Spotify 후보 검색(읽기 전용)",
 )
 def search_candidates(
     q: str = Query(..., description="Spotify 검색 쿼리"),
@@ -70,14 +69,13 @@ def search_candidates(
     market: Optional[str] = Query(None, description="예: KR, US"),
     limit: int = Query(10, ge=1, le=50),
     offset: int = Query(0, ge=0, le=1000),
-    db: Session = Depends(get_db),
     include_external: Optional[str] = Query(None, description='선택값: "audio"'),
     _claims: dict = Depends(require_cognito_token),
 ):
     if include_external not in (None, "audio"):
         raise HTTPException(status_code=400, detail='include_external must be "audio" or omitted')
 
-    service = CandidateSearchService(db=db, sqs=SqsClient())
+    service = CandidateSearchService()
     try:
         return service.search_candidates(
             q=q, typ=type, market=market, limit=limit, offset=offset, include_external=include_external

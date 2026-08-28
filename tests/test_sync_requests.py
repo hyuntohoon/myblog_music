@@ -7,9 +7,12 @@ os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://x:x@localhost/x")
 from fastapi.testclient import TestClient
 
 from app.api.routers import sync_requests
+from app.clients import sqs_client
 from app.clients.sqs_client import SqsEnqueueError
+from app.core import db as db_module
 from app.domain.schemas import AlbumSyncAccepted
 from app.main import app
+from app.services import cadidate_search_service
 from app.services.sync_request_service import SyncRequestService
 
 
@@ -57,6 +60,25 @@ class _ServiceStub:
         if self.error:
             raise self.error
         return self.result
+
+
+def test_candidates_get_resolves_neither_db_nor_sqs(monkeypatch):
+    def _unexpected_db():
+        raise AssertionError("candidate GET must not resolve get_db")
+
+    def _unexpected_sqs(*_args, **_kwargs):
+        raise AssertionError("candidate GET must not construct SQS")
+
+    monkeypatch.setattr(cadidate_search_service.spotify, "search", lambda **_kwargs: {})
+    monkeypatch.setattr(sqs_client, "_get_boto_sqs", _unexpected_sqs)
+    monkeypatch.setattr(db_module, "SessionLocal", _unexpected_db)
+    response = TestClient(app).get(
+        "/api/music/search/candidates",
+        params={"q": "candidate"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {}
 
 
 def test_sync_request_returns_202_and_filters_catalogued_ids(monkeypatch):
