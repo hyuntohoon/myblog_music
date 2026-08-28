@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 ALLOWED_TYPES: Set[str] = {"album", "artist", "track"}
 
 class CandidateSearchService:
-    """Spotify 후보 검색 + 앨범 ID 수집 + SQS enqueue 까지 담당 (디버그/로그 없음)"""
+    """Spotify candidate search plus the temporary legacy enqueue side effect."""
 
     def __init__(self, sqs: SqsClient, db: Session, default_market: str = "KR") -> None:
         self.sqs = sqs
@@ -56,7 +56,7 @@ class CandidateSearchService:
             out[key] = [mappers[key](it) for it in items_raw]
             out[f"{key}_pagination"] = self._page_info(block)
 
-        # 앨범ID 수집 후 SQS 전송 (실패 무시)
+        # Temporary compatibility path while clients migrate to POST /sync-requests.
         try:
             album_ids = self._collect_album_ids(out)
             if album_ids:
@@ -149,25 +149,22 @@ class CandidateSearchService:
             "external_url": (t.get("external_urls") or {}).get("spotify"),
         }
 
-    # ---------- 수집 ----------
-
     @staticmethod
     def _collect_album_ids(out: Dict[str, Any]) -> List[str]:
-        # 입력 순서 보존 + 중복 제거
         ordered: List[str] = []
         seen: set[str] = set()
 
-        for a in (out.get("albums") or []):
-            sid = (a or {}).get("spotify_id")
-            if sid and sid not in seen:
-                seen.add(sid)
-                ordered.append(sid)
+        for album in out.get("albums") or []:
+            spotify_id = (album or {}).get("spotify_id")
+            if spotify_id and spotify_id not in seen:
+                seen.add(spotify_id)
+                ordered.append(spotify_id)
 
-        for t in (out.get("tracks") or []):
-            alb = (t or {}).get("album") or {}
-            sid = alb.get("spotify_id") or alb.get("id")
-            if sid and sid not in seen:
-                seen.add(sid)
-                ordered.append(sid)
+        for track in out.get("tracks") or []:
+            album = (track or {}).get("album") or {}
+            spotify_id = album.get("spotify_id") or album.get("id")
+            if spotify_id and spotify_id not in seen:
+                seen.add(spotify_id)
+                ordered.append(spotify_id)
 
         return ordered

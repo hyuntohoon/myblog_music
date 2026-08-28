@@ -267,6 +267,81 @@
         "title": "AlbumOut",
         "type": "object"
       },
+      "AlbumSyncAccepted": {
+        "properties": {
+          "enqueued_album_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Enqueued Album Ids",
+            "type": "array"
+          },
+          "queued_message_count": {
+            "default": 0,
+            "title": "Queued Message Count",
+            "type": "integer"
+          },
+          "skipped_existing_album_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Skipped Existing Album Ids",
+            "type": "array"
+          },
+          "status": {
+            "const": "accepted",
+            "default": "accepted",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "AlbumSyncAccepted",
+        "type": "object"
+      },
+      "AlbumSyncFailed": {
+        "properties": {
+          "message": {
+            "default": "Album sync request could not be accepted",
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "const": "failed",
+            "default": "failed",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "AlbumSyncFailed",
+        "type": "object"
+      },
+      "AlbumSyncRequest": {
+        "properties": {
+          "album_ids": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Album Ids",
+            "type": "array"
+          },
+          "market": {
+            "default": "KR",
+            "pattern": "^[A-Za-z]{2}$",
+            "title": "Market",
+            "type": "string"
+          }
+        },
+        "required": [
+          "album_ids"
+        ],
+        "title": "AlbumSyncRequest",
+        "type": "object"
+      },
       "ArtistHero": {
         "properties": {
           "album_count": {
@@ -2356,7 +2431,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Spotify \ud6c4\ubcf4 \uac80\uc0c9(\uc77d\uae30 \uc804\uc6a9 + \uc568\ubc94 \ub3d9\uae30\ud654 enqueue)",
+        "summary": "Spotify \ud6c4\ubcf4 \uac80\uc0c9(\uc77d\uae30 \uc804\uc6a9 + \uc568\ubc94 \ub3d9\uae30\ud654 enqueue; deprecated side effect)",
         "tags": [
           "Search"
         ]
@@ -2510,6 +2585,62 @@
         "summary": "\ud1b5\ud569 \uac80\uc0c9(DB-first)",
         "tags": [
           "Search"
+        ]
+      }
+    },
+    "/api/music/sync-requests": {
+      "post": {
+        "operationId": "create_sync_request_api_music_sync_requests_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlbumSyncRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlbumSyncAccepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlbumSyncFailed"
+                }
+              }
+            },
+            "description": "The queue could not accept every requested album-sync message."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "\uc568\ubc94 \ub3d9\uae30\ud654 \uc694\uccad enqueue",
+        "tags": [
+          "Sync Requests"
         ]
       }
     }

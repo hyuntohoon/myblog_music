@@ -1,4 +1,4 @@
-"""Candidate search integration against a real LocalStack SQS queue."""
+"""Additive explicit sync POST contract against LocalStack SQS."""
 from __future__ import annotations
 
 import json
@@ -26,12 +26,18 @@ class _EmptyScalarResult:
 class _EmptyCatalogSession:
     """Small deterministic get_db replacement used by AlbumRepository."""
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args) -> None:
+        return None
+
     def scalars(self, _statement) -> _EmptyScalarResult:
         return _EmptyScalarResult()
 
 
 @pytest.mark.integration
-def test_candidates_enqueues_album_ids(monkeypatch):
+def test_additive_sync_post_coexists_with_legacy_get_enqueue(monkeypatch):
     monkeypatch.setenv("AWS_ACCESS_KEY_ID", "test")
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "test")
 
@@ -42,18 +48,18 @@ def test_candidates_enqueues_album_ids(monkeypatch):
         aws_access_key_id="test",
         aws_secret_access_key="test",
     )
-    queue_name = f"album-sync-{uuid.uuid4().hex}.fifo"
-    queue_url = sqs.create_queue(
-        QueueName=queue_name,
-        Attributes={"FifoQueue": "true"},
-    )["QueueUrl"]
+    queue_name = f"album-sync-{uuid.uuid4().hex}"
+    queue_url = sqs.create_queue(QueueName=queue_name)["QueueUrl"]
 
     from fastapi.testclient import TestClient
 
+    from app.api.routers import sync_requests
     from app.clients import spotify_client, sqs_client
+    from app.clients.sqs_client import SqsClient
     from app.core.config import settings
     from app.core.db import get_db
     from app.main import app
+    from app.services.sync_request_service import SyncRequestService
 
     monkeypatch.setattr(settings, "ENV", "local")
     monkeypatch.setattr(settings, "AWS_DEFAULT_REGION", REGION)
@@ -112,13 +118,55 @@ def test_candidates_enqueues_album_ids(monkeypatch):
     }
     monkeypatch.setattr(spotify_client.spotify, "search", lambda **_kwargs: mock_resp)
 
-    app.dependency_overrides[get_db] = lambda: _EmptyCatalogSession()
+    def _empty_catalog_db():
+        with _EmptyCatalogSession() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = _empty_catalog_db
+    monkeypatch.setattr(sync_requests, "get_sync_request_service", lambda: SyncRequestService(
+        session_factory=_EmptyCatalogSession,
+        sqs=SqsClient(),
+    ))
     try:
-        response = TestClient(app).get(
+        client = TestClient(app)
+        response = client.get(
             "/api/music/search/candidates",
             params={"q": "album:Mock", "type": "album,artist,track", "market": "KR"},
         )
         assert response.status_code == 200, response.text
+
+        # During additive rollout, legacy GET still emits one compatibility message.
+        legacy_messages = sqs.receive_message(
+            QueueUrl=queue_url,
+            MaxNumberOfMessages=10,
+            WaitTimeSeconds=1,
+        ).get("Messages", [])
+        assert len(legacy_messages) == 1
+        assert json.loads(legacy_messages[0]["Body"]) == {
+            "album_ids": ["alb_111"],
+            "market": "KR",
+        }
+        sqs.delete_message(
+            QueueUrl=queue_url,
+            ReceiptHandle=legacy_messages[0]["ReceiptHandle"],
+        )
+
+        candidates = response.json()
+        album_ids = list(dict.fromkeys(
+            [item["spotify_id"] for item in candidates.get("albums", []) if item.get("spotify_id")]
+            + [
+                item["album"]["spotify_id"]
+                for item in candidates.get("tracks", [])
+                if item.get("album", {}).get("spotify_id")
+            ]
+        ))
+        accepted = client.post(
+            "/api/music/sync-requests",
+            json={"album_ids": album_ids, "market": "KR"},
+        )
+        assert accepted.status_code == 202, accepted.text
+        assert accepted.json()["status"] == "accepted"
+        assert accepted.json()["enqueued_album_ids"] == ["alb_111"]
 
         messages = []
         for _ in range(10):
@@ -137,9 +185,7 @@ def test_candidates_enqueues_album_ids(monkeypatch):
                 break
             time.sleep(0.5)
 
-        assert len(messages) == 1
-        assert messages[0]["album_ids"] == ["alb_111"]
-        assert messages[0]["market"] == "KR"
+        assert messages == [{"album_ids": ["alb_111"], "market": "KR"}]
     finally:
         app.dependency_overrides.pop(get_db, None)
         sqs_client._get_boto_sqs.cache_clear()

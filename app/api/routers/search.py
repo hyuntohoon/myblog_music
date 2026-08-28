@@ -56,13 +56,13 @@ def unified_search(
 
 
 # -------------------------------
-# 후보 검색 (+ 앨범 동기화 enqueue) - 기존 유지
+# 후보 검색 (+ 앨범 동기화 enqueue) - legacy transition path
 # -------------------------------
 @router.get(
     "/candidates",
     response_model=CandidateSearchResult,
     response_model_exclude_none=True,
-    summary="Spotify 후보 검색(읽기 전용 + 앨범 동기화 enqueue)",
+    summary="Spotify 후보 검색(읽기 전용 + 앨범 동기화 enqueue; deprecated side effect)",
 )
 def search_candidates(
     q: str = Query(..., description="Spotify 검색 쿼리"),

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pydantic import BaseModel, Field
-from typing import List, Optional, Union
+from typing import Annotated, List, Literal, Optional, Union
 
 
 # ------- 리스트용 아티스트 (검색 결과 등) -------
@@ -230,6 +230,27 @@ class CandidateSearchResult(BaseModel):
     albums_pagination: Optional[CandidatePagination] = None
     artists_pagination: Optional[CandidatePagination] = None
     tracks_pagination: Optional[CandidatePagination] = None
+
+
+SpotifyAlbumId = Annotated[str, Field(min_length=1, max_length=128, pattern=r"^\S+$")]
+SpotifyMarket = Annotated[str, Field(pattern=r"^[A-Za-z]{2}$")]
+
+
+class AlbumSyncRequest(BaseModel):
+    album_ids: List[SpotifyAlbumId] = Field(min_length=1, max_length=1000)
+    market: SpotifyMarket = "KR"
+
+
+class AlbumSyncAccepted(BaseModel):
+    status: Literal["accepted"] = "accepted"
+    enqueued_album_ids: List[str] = Field(default_factory=list)
+    skipped_existing_album_ids: List[str] = Field(default_factory=list)
+    queued_message_count: int = 0
+
+
+class AlbumSyncFailed(BaseModel):
+    status: Literal["failed"] = "failed"
+    message: str = "Album sync request could not be accepted"
 
 
 # ------- "오늘, 이 앨범들" (FEAT-today-buckit Step 1) -------
