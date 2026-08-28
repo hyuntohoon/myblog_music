@@ -139,7 +139,17 @@ jobs:
 
   deploy:
     needs: [test, contract]
-    if: github.event_name == 'push'
+    # Production deploy is main-only. `on.push.branches` already filters to main
+    # today, but the guard is stated explicitly because this job now carries
+    # `id-token: write`: if `workflow_dispatch` is ever added here — the manual
+    # recovery path backend and worker both have — a dispatch from a feature branch
+    # would otherwise reach this job with an OIDC token in hand. AWS would still
+    # refuse (the role's `sub` pins refs/heads/main), but the STS trust condition
+    # should not be the only thing standing there. Twin of
+    # myblog_backend/.github/workflows/deploy.yml and myblog_worker's.
+    if: >-
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+      && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     # Job-level permissions REPLACE the workflow-level block, so `contents: read`
     # is restated here rather than inherited. `id-token: write` is what lets this
