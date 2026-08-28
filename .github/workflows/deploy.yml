@@ -87,6 +87,20 @@ jobs:
   # the test branch it measures missing data rather than lost recall (pytest.ini).
   integration:
     runs-on: ubuntu-latest
+    services:
+      localstack:
+        image: localstack/localstack:3.8.1
+        env:
+          SERVICES: sqs
+          AWS_DEFAULT_REGION: us-east-1
+          EAGER_SERVICE_LOADING: "1"
+        ports:
+          - 4566:4566
+        options: >-
+          --health-cmd "curl -fsS http://localhost:4566/_localstack/health || exit 1"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
     steps:
       - uses: actions/checkout@v4
 
