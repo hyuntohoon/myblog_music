@@ -1,21 +1,10 @@
-import logging
 from typing import Any, Dict, List, Optional, Set
 from app.clients.spotify_client import spotify
-
-logger = logging.getLogger(__name__)
-from app.clients.sqs_client import SqsClient
-from app.repositories.album_repo import AlbumRepository
-from sqlalchemy.orm import Session
 
 ALLOWED_TYPES: Set[str] = {"album", "artist", "track"}
 
 class CandidateSearchService:
-    """Spotify candidate search plus the temporary legacy enqueue side effect."""
-
-    def __init__(self, sqs: SqsClient, db: Session, default_market: str = "KR") -> None:
-        self.sqs = sqs
-        self.default_market = default_market
-        self.album_repo = AlbumRepository(db)
+    """Read-only Spotify candidate search. It never opens DB or SQS clients."""
 
     # ---------- 외부 API ----------
     def search_candidates(
@@ -55,17 +44,6 @@ class CandidateSearchService:
             items_raw = block.get("items") or []
             out[key] = [mappers[key](it) for it in items_raw]
             out[f"{key}_pagination"] = self._page_info(block)
-
-        # Temporary compatibility path while clients migrate to POST /sync-requests.
-        try:
-            album_ids = self._collect_album_ids(out)
-            if album_ids:
-                existing_ids = self.album_repo.get_existing_spotify_ids(album_ids)
-                new_ids = [id_ for id_ in album_ids if id_ not in existing_ids]
-                if new_ids:
-                    self.sqs.enqueue_album_sync(new_ids, market or self.default_market)
-        except Exception as e:
-            logger.error("SQS enqueue failed: %s", e, exc_info=True)
 
         return out
 
@@ -148,23 +126,3 @@ class CandidateSearchService:
             "artist_spotify_id": primary_artist.get("id"),
             "external_url": (t.get("external_urls") or {}).get("spotify"),
         }
-
-    @staticmethod
-    def _collect_album_ids(out: Dict[str, Any]) -> List[str]:
-        ordered: List[str] = []
-        seen: set[str] = set()
-
-        for album in out.get("albums") or []:
-            spotify_id = (album or {}).get("spotify_id")
-            if spotify_id and spotify_id not in seen:
-                seen.add(spotify_id)
-                ordered.append(spotify_id)
-
-        for track in out.get("tracks") or []:
-            album = (track or {}).get("album") or {}
-            spotify_id = album.get("spotify_id") or album.get("id")
-            if spotify_id and spotify_id not in seen:
-                seen.add(spotify_id)
-                ordered.append(spotify_id)
-
-        return ordered

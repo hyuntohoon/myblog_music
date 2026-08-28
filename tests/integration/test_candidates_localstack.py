@@ -1,4 +1,4 @@
-"""Additive explicit sync POST contract against LocalStack SQS."""
+"""Candidate GET / explicit sync POST contract against LocalStack SQS."""
 from __future__ import annotations
 
 import json
@@ -37,7 +37,7 @@ class _EmptyCatalogSession:
 
 
 @pytest.mark.integration
-def test_additive_sync_post_coexists_with_legacy_get_enqueue(monkeypatch):
+def test_candidates_get_is_pure_and_sync_post_enqueues_format_a(monkeypatch):
     monkeypatch.setenv("AWS_ACCESS_KEY_ID", "test")
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "test")
 
@@ -57,7 +57,6 @@ def test_additive_sync_post_coexists_with_legacy_get_enqueue(monkeypatch):
     from app.clients import spotify_client, sqs_client
     from app.clients.sqs_client import SqsClient
     from app.core.config import settings
-    from app.core.db import get_db
     from app.main import app
     from app.services.sync_request_service import SyncRequestService
 
@@ -118,11 +117,6 @@ def test_additive_sync_post_coexists_with_legacy_get_enqueue(monkeypatch):
     }
     monkeypatch.setattr(spotify_client.spotify, "search", lambda **_kwargs: mock_resp)
 
-    def _empty_catalog_db():
-        with _EmptyCatalogSession() as session:
-            yield session
-
-    app.dependency_overrides[get_db] = _empty_catalog_db
     monkeypatch.setattr(sync_requests, "get_sync_request_service", lambda: SyncRequestService(
         session_factory=_EmptyCatalogSession,
         sqs=SqsClient(),
@@ -135,20 +129,11 @@ def test_additive_sync_post_coexists_with_legacy_get_enqueue(monkeypatch):
         )
         assert response.status_code == 200, response.text
 
-        # During additive rollout, legacy GET still emits one compatibility message.
-        legacy_messages = sqs.receive_message(
+        # GET is a pure Spotify read: no queue message is emitted.
+        assert "Messages" not in sqs.receive_message(
             QueueUrl=queue_url,
             MaxNumberOfMessages=10,
             WaitTimeSeconds=1,
-        ).get("Messages", [])
-        assert len(legacy_messages) == 1
-        assert json.loads(legacy_messages[0]["Body"]) == {
-            "album_ids": ["alb_111"],
-            "market": "KR",
-        }
-        sqs.delete_message(
-            QueueUrl=queue_url,
-            ReceiptHandle=legacy_messages[0]["ReceiptHandle"],
         )
 
         candidates = response.json()
@@ -187,6 +172,5 @@ def test_additive_sync_post_coexists_with_legacy_get_enqueue(monkeypatch):
 
         assert messages == [{"album_ids": ["alb_111"], "market": "KR"}]
     finally:
-        app.dependency_overrides.pop(get_db, None)
         sqs_client._get_boto_sqs.cache_clear()
         sqs.delete_queue(QueueUrl=queue_url)

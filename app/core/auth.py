@@ -93,8 +93,8 @@ def require_cognito_token(
 
     # FIX-bug-audit-2026-07 WS-A: in prod a missing pool id is a MISCONFIGURATION,
     # not a reason to skip auth. Fail CLOSED — never `or not COGNITO_USER_POOL_ID:
-    # return {}`, which silently un-gated /candidates (sync Spotify + SQS enqueue)
-    # if the musicApi Lambda env ever dropped the pool id. Mirrors the fail-closed
+    # return {}`, which silently un-gated candidate Spotify reads and explicit
+    # sync-request SQS enqueues if the musicApi Lambda env ever dropped the pool id. Mirrors the fail-closed
     # posture already in myblog_backend/app/core/auth.py (AUTH-5).
     if not settings.COGNITO_USER_POOL_ID:
         logger.error(
@@ -172,8 +172,8 @@ def require_cognito_token(
         # `jwt.decode` is called without `audience=` and jose rejects any token
         # carrying `aud` before this line. It is written out so that whoever does
         # add ID-token support has the binding already correct rather than absent. Until now nothing here looked at either, so ANY token
-        # minted by this user pool was accepted on /candidates — the route that
-        # drives synchronous Spotify reads and SQS enqueues.
+        # minted by this user pool was accepted on the candidates/sync-request
+        # pair that drives synchronous Spotify reads and explicit SQS enqueues.
         presented_client = claims.get("client_id") if token_use == "access" else claims.get("aud")
         if presented_client not in allowed_clients:
             logger.warning(
