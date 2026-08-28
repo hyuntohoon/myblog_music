@@ -244,7 +244,12 @@ class AlbumRepository:
                 result[str(al_id)] = (ar_name, ar_spid, str(ar_id))
         return result
 
-    def get_existing_spotify_ids(self, ids: Iterable[str]) -> Set[str]:
+    def get_existing_spotify_ids(
+        self,
+        ids: Iterable[str],
+        *,
+        fail_on_error: bool = False,
+    ) -> Set[str]:
         ids_list: List[str] = [i for i in ids if i]
         if not ids_list:
             return set()
@@ -253,6 +258,8 @@ class AlbumRepository:
             return set(self.db.scalars(stmt).all())
         except Exception as e:
             logger.error("get_existing_spotify_ids failed: %s", e, exc_info=True)
+            if fail_on_error:
+                raise
             return set()
 
 

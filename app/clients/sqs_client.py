@@ -12,6 +12,10 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
+class SqsEnqueueError(RuntimeError):
+    """The queue did not accept every album-sync message."""
+
+
 class SqsClient:
     """SQS 전송 전용 클라이언트 (LocalStack ↔ AWS 자동 전환)"""
 
@@ -54,14 +58,14 @@ class SqsClient:
 
         self.is_fifo = self.queue_name.endswith(".fifo")
 
-    def enqueue_album_sync(self, album_ids: Iterable[str], market: str) -> None:
+    def enqueue_album_sync(self, album_ids: Iterable[str], market: str) -> int:
         """
         앨범 ID들을 '메시지 1개당 최대 20개'로 묶어서 SQS에 전송.
-        SQS 배치 전송은 엔트리 10개씩. 실패는 로깅만.
+        SQS 배치 전송은 엔트리 10개씩. 일부라도 실패하면 호출자에게 예외를 반환.
         """
         ids: List[str] = [sid for sid in album_ids if sid]
         if not ids:
-            return
+            return 0
 
         GROUP = 20  # 메시지 1개에 담을 앨범ID 최대(Spotify /albums?ids= 한도)
         BATCH = 10  # SQS send_message_batch 엔트리 한도
@@ -78,6 +82,7 @@ class SqsClient:
                 grouped_bodies.append(body)
 
             # 2) 메시지 본문들을 SQS 배치(엔트리 10개)로 전송
+            sent_count = 0
             for i in range(0, len(grouped_bodies), BATCH):
                 entries: List[Dict] = []
                 for body in grouped_bodies[i:i + BATCH]:
@@ -98,13 +103,20 @@ class SqsClient:
                     Entries=entries
                 )
                 if failed := response.get("Failed"):
-                    logger.warning(
+                    logger.error(
                         "SQS batch partial failure: %d/%d message(s) failed",
                         len(failed), len(entries),
                     )
+                    raise SqsEnqueueError("SQS rejected one or more album-sync messages")
+                sent_count += len(entries)
 
+            return sent_count
+
+        except SqsEnqueueError:
+            raise
         except Exception as e:
             logger.error("enqueue_album_sync failed: %s", e, exc_info=True)
+            raise SqsEnqueueError("Album-sync enqueue failed") from e
 
 
 @lru_cache(maxsize=1)
