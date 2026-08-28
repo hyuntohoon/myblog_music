@@ -71,40 +71,46 @@ class Settings(BaseSettings):
     QUEUE_NAME: str = "test-queue"
     SQS_QUEUE_URL: str | None = None
 
-    # Secrets Manager (legacy) + SSM Parameter Store (CHORE-secrets-ssm-migration).
-    # SECRETS_PARAM (SSM SecureString name, e.g. /myblog/music) takes priority;
-    # SECRETS_ARN is the fallback. Setting SECRETS_PARAM is the cutover switch.
-    SECRETS_ARN: str = ""
+    # Runtime secrets: SSM Parameter Store ONLY (CHORE-secrets-ssm-migration).
+    # SECRETS_PARAM is an SSM SecureString name like /myblog/music. The legacy
+    # Secrets Manager fallback (SECRETS_ARN) was removed once the migration
+    # completed — AWS Secrets Manager holds zero secrets in this account, so the
+    # fallback could only ever turn an SSM failure into a silent empty load.
     SECRETS_PARAM: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
-def _load_secrets(param: str, arn: str) -> dict:
-    """Prefer SSM Parameter Store (``param``), fall back to Secrets Manager
-    (``arn``) on unset-or-error (CHORE-secrets-ssm-migration)."""
-    if param:
-        try:
-            import boto3
-            ssm = boto3.client("ssm", region_name="ap-northeast-2")
-            return json.loads(ssm.get_parameter(Name=param, WithDecryption=True)["Parameter"]["Value"])
-        except Exception as e:
-            logger.error("SSM load failed for %s, falling back to Secrets Manager: %s", param, e)
-    if arn:
-        try:
-            import boto3
-            sm = boto3.client("secretsmanager", region_name="ap-northeast-2")
-            return json.loads(sm.get_secret_value(SecretId=arn)["SecretString"])
-        except Exception as e:
-            logger.error("Failed to load secrets from %s: %s", arn, e)
-    return {}
+def _load_secrets(param: str) -> dict:
+    """Load the secret JSON dict from SSM Parameter Store (SecureString).
+
+    SSM is the only source (CHORE-secrets-ssm-migration). A failure is raised,
+    not swallowed: the caller's required-key check below would have turned a
+    returned ``{}`` into a ValueError naming the wrong subsystem, and an
+    IAM/network failure is not the same condition as "the parameter is missing
+    a key". Same shape in ``myblog_backend`` and ``myblog_worker``.
+
+    Everything that can fail is inside the ``try``: constructing the client
+    (``NoRegionError``) and parsing the value (``JSONDecodeError``) are as much
+    "the load failed" as the API call is, and each must still produce a log line
+    naming the parameter.
+    """
+    import boto3
+
+    try:
+        ssm = boto3.client("ssm", region_name="ap-northeast-2")
+        raw = ssm.get_parameter(Name=param, WithDecryption=True)["Parameter"]["Value"]
+        return json.loads(raw)
+    except Exception as e:
+        logger.error("SSM load failed for %s: %s", param, e)
+        raise
 
 
 @lru_cache
 def get_settings() -> Settings:
     s = Settings()
-    if s.SECRETS_ARN or s.SECRETS_PARAM:
-        secrets = _load_secrets(s.SECRETS_PARAM, s.SECRETS_ARN)
+    if s.SECRETS_PARAM:
+        secrets = _load_secrets(s.SECRETS_PARAM)
         if secrets.get("DATABASE_URL"):
             s.DATABASE_URL = secrets["DATABASE_URL"]
         if secrets.get("SPOTIFY_CLIENT_ID"):
@@ -117,7 +123,10 @@ def get_settings() -> Settings:
             "SPOTIFY_CLIENT_SECRET": s.SPOTIFY_CLIENT_SECRET,
         }.items() if not v]
         if missing:
-            raise ValueError(f"Required secrets missing after Secrets Manager load: {missing}. Check SECRETS_ARN and IAM policy.")
+            raise ValueError(
+                f"Required secrets missing after SSM load: {missing}. "
+                f"Check the {s.SECRETS_PARAM} SecureString and the Lambda role's ssm:GetParameter policy."
+            )
     return s
 
 
