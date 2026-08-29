@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Usage: ./build_lambda.sh [arch]
-# Example: ./build_lambda.sh arm64  (or amd64)
-ARCH="${1:-arm64}"
-PLATFORM="linux/${ARCH}"
+# The lock is resolved for aarch64 only and the pip call below hard-targets it,
+# so this builds the arm64 Lambda bundle and nothing else. It used to take an
+# arch argument; against a target-pinned lock that could only ever produce an
+# arm64 bundle inside an amd64 container.
+PLATFORM="linux/arm64"
 : "${SHARED_DB_PAT:?SHARED_DB_PAT is required for the private shared_db package}"
 
 # 빌드 결과물: ./lambda_bundle.zip
@@ -27,8 +28,10 @@ docker run --rm \
     echo '== Step 1: pip install =='
     git config --global url.\"https://\${SHARED_DB_PAT}@github.com/\".insteadOf \"https://github.com/\"
     # Flags mirror scripts/compile_requirements.sh and deploy.yml: the lock was
-    # resolved for this exact target, so pinning it here keeps the local bundle
-    # byte-comparable with the one CI builds.
+    # resolved for this exact target, so pinning it here makes the local bundle
+    # hold the same distributions, from the same wheels, as the one CI builds.
+    # (The zips themselves are not byte-identical -- this script and the deploy
+    # job use different zip tools and neither normalizes mtimes.)
     python -m pip install --no-deps -r requirements.lock -t ${BUILD_DIR} --no-cache-dir \
       --platform manylinux2014_aarch64 \
       --python-version 3.12 \

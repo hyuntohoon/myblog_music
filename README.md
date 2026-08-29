@@ -104,6 +104,35 @@
 
 ---
 
+## 의존성 잠금 (`requirements.lock`)
+
+`requirements.txt`는 사람이 쓰는 범위 선언이고, **배포 번들에 실제로 들어가는 것은
+`requirements.lock` 하나다.** CI의 빌드와 `build.sh`가 둘 다 `pip install --no-deps -r
+requirements.lock`으로 설치하므로, lock에 없는 패키지는 Lambda에도 없다.
+
+lock은 **프로덕션 타깃 기준으로만** 해석된다 — CPython 3.12 / `aarch64-manylinux2014` /
+wheel 전용. 이 타깃이 고정돼 있어서 macOS arm64 노트북과 x86_64 CI 러너가 같은 파일을
+만든다. 호스트에서 풀면 환경 마커가 호스트 기준으로 평가돼(macOS는
+`platform_machine == "arm64"`) SQLAlchemy의 `greenlet`처럼 aarch64에서만 필요한 패키지가
+조용히 빠진다.
+
+```bash
+pip install uv==0.12.7          # 정확히 이 버전 (스크립트가 검사한다)
+./scripts/compile_requirements.sh
+```
+
+- `requirements.txt`를 고쳤으면 위를 실행하고 lock을 **같은 커밋에** 담아라. 안 하면
+  CI의 `Check dependency lock`이 red가 된다.
+- **lock을 손으로 고치지 마라.** 검증은 처음부터 다시 풀어서 대조하므로, 새로 푼 결과가
+  내놓지 않는 pin은 그대로 거부된다.
+- 패키지를 올리는 유일한 방법은 `scripts/compile_requirements.sh`의 `EXCLUDE_NEWER`
+  타임스탬프를 앞으로 옮기고 다시 돌리는 것이다. 인덱스가 그 시점에 얼어 있어서,
+  아무것도 안 바꾸고 다시 돌리면 결과가 같다.
+- `build.sh`는 비공개 `myblog_shared_db`를 받기 위해 `SHARED_DB_PAT`가 필요하다.
+
+알려진 한계: `myblog-shared-db`는 git 의존성이라 해시 고정(`--require-hashes`)을 쓸 수
+없고, 번들에서 유일하게 러너에서 빌드되는 패키지다(순수 파이썬 `py3-none-any`).
+
 ## 왜 분리했는가
 
 외부 API(Spotify)와 연결되는 영역은 **장애·레이트리밋·비용** 이슈가 있어 블로그 core API와 격리해야 합니다. `candidates`는 Spotify 읽기만, `sync-requests`는 SQS enqueue만 담당해 검색 결과와 동기화 수락/실패를 별도로 관측합니다. **"검색은 DB로, 최신화는 비동기"** 라는 아키텍처 결정을 서비스 경계로 명확히 반영했습니다.
