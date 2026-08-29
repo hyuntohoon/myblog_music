@@ -12,9 +12,11 @@ pins that so the dead branch cannot be "fixed" into a real hole by someone
 passing `audience=` and concluding it works because access tokens still pass.
 
 This is the `myblog_music` copy of the backend vectors, calling
-`require_cognito_token` because music has no factored-out `verify_token`. The
-guards are duplicated on purpose; their vectors must be too, or the copies drift
-where the duplication exists to protect. It matters more here: `infra/apigateway.tf`
+`require_cognito_token` rather than `verify_token` directly. It predates
+SEC-system-hardening Step 6 and is deliberately UNCHANGED by it: `app/core/auth.py`
+is now byte-identical with the backend copy, and every assertion below passing
+without an edit is the evidence that the consolidation changed no behaviour.
+It matters more here than on the backend: `infra/apigateway.tf`
 attaches the Cognito authorizer to 51 of 55 routes and to NONE of `/api/music/*`,
 so for this service the in-process guard is the only gate there is.
 """
@@ -73,13 +75,15 @@ def _creds(token: str) -> HTTPAuthorizationCredentials:
 
 
 def _verify(token: str):
-    """myblog_music has no factored-out `verify_token`.
+    """Route these vectors through the FastAPI dependency, as they always have.
 
-    Its verification body is inlined in `require_cognito_token`, which is the
-    structural half of the backend/music divergence: music cannot add an edge
-    guard without a third copy of this body. Consolidation is deliberately a
-    later step; these vectors go in first so the consolidation has something to
-    prove it did not change behaviour.
+    Music's verification body used to be inlined here — the structural half of
+    the backend/music divergence, and the reason music could not add an edge
+    guard without a third copy of it. SEC-system-hardening Step 6 replaced the
+    inline body with the shared `verify_token` that `require_cognito_token` now
+    calls. This helper is left pointing at the dependency on purpose: the vectors
+    keep exercising the same entry point they did before the consolidation, so a
+    green run means the entry point still behaves identically.
     """
     return auth.require_cognito_token(credentials=_creds(token))
 
