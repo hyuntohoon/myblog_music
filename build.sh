@@ -26,7 +26,15 @@ docker run --rm \
   -lc "
     echo '== Step 1: pip install =='
     git config --global url.\"https://\${SHARED_DB_PAT}@github.com/\".insteadOf \"https://github.com/\"
-    python -m pip install --no-deps -r requirements.lock -t ${BUILD_DIR} --no-cache-dir --only-binary=:all:
+    # Flags mirror scripts/compile_requirements.sh and deploy.yml: the lock was
+    # resolved for this exact target, so pinning it here keeps the local bundle
+    # byte-comparable with the one CI builds.
+    python -m pip install --no-deps -r requirements.lock -t ${BUILD_DIR} --no-cache-dir \
+      --platform manylinux2014_aarch64 \
+      --python-version 3.12 \
+      --implementation cp \
+      --abi cp312 \
+      --only-binary=:all:
     echo '== Step 2: copy app files =='
     cp -r app ${BUILD_DIR}/
     echo '== Step 3: cleanup =='
