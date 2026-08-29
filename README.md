@@ -87,14 +87,14 @@
 
 | 변수                    | 설명                                                                |
 |-------------------------|---------------------------------------------------------------------|
-| `SECRETS_ARN`           | AWS Secrets Manager `myblog/music` 의 ARN (prod). cold-start 1회 fetch + `@lru_cache` |
+| `SECRETS_PARAM`         | SSM Parameter Store SecureString 이름 (prod: `/myblog/music`). cold-start 1회 fetch + `@lru_cache`. 실패 시 조용히 넘어가지 않고 raise 합니다 (CHORE-secrets-ssm-migration — Secrets Manager 는 폐기) |
 | `DATABASE_URL`          | Neon 접속 URL (`postgresql+psycopg://...`) — local dev 시 직접 주입 |
 | `SPOTIFY_CLIENT_ID`     | Spotify 앱 Client ID                                                |
 | `SPOTIFY_CLIENT_SECRET` | Spotify 앱 Client Secret                                            |
 | `SQS_QUEUE_URL`         | SQS 큐 URL (`blogSQS` Standard)                                     |
 | `AWS_DEFAULT_REGION`    | AWS 리전                                                            |
 
-> 로컬 개발 시 리포 루트에 `.env` (git-ignored)를 만들어 채웁니다. 실제 값은 절대 커밋하지 마세요 — 운영 값은 모두 `SECRETS_ARN` 한 곳에서 로드됩니다.
+> 로컬 개발 시 리포 루트에 `.env` (git-ignored)를 만들어 채웁니다. 실제 값은 절대 커밋하지 마세요 — 운영 값은 모두 `SECRETS_PARAM` 이 가리키는 SSM SecureString 한 곳에서 로드됩니다.
 >
 > ```dotenv
 > DATABASE_URL=postgresql+psycopg://blog:blog@127.0.0.1:5433/blog
