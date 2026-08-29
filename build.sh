@@ -5,6 +5,7 @@ set -euo pipefail
 # Example: ./build_lambda.sh arm64  (or amd64)
 ARCH="${1:-arm64}"
 PLATFORM="linux/${ARCH}"
+: "${SHARED_DB_PAT:?SHARED_DB_PAT is required for the private shared_db package}"
 
 # 빌드 결과물: ./lambda_bundle.zip
 OUTPUT_ZIP="lambda_bundle.zip"
@@ -17,13 +18,15 @@ mkdir -p "${BUILD_DIR}"
 # Docker 기반으로 AWS Lambda Python 3.12 환경 맞춰 빌드
 docker run --rm \
   --platform "${PLATFORM}" \
+  -e SHARED_DB_PAT \
   -v "$PWD":/var/task \
   -w /var/task \
   --entrypoint /bin/bash \
   public.ecr.aws/lambda/python:3.12 \
   -lc "
     echo '== Step 1: pip install =='
-    pip install -r requirements.txt -t ${BUILD_DIR} --no-cache-dir
+    git config --global url.\"https://\${SHARED_DB_PAT}@github.com/\".insteadOf \"https://github.com/\"
+    python -m pip install --no-deps -r requirements.lock -t ${BUILD_DIR} --no-cache-dir --only-binary=:all:
     echo '== Step 2: copy app files =='
     cp -r app ${BUILD_DIR}/
     echo '== Step 3: cleanup =='
