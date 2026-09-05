@@ -55,6 +55,28 @@ class Settings(BaseSettings):
     SPOTIFY_API_BASE: str = "https://api.spotify.com/v1"
     SPOTIFY_DEFAULT_MARKET: str = "KR"
 
+    # YouTube Data API v3 (FEAT-youtube-playback-provider Step A2).
+    # Discovery only — read-only search.list + videos.list, no OAuth. Milestone B
+    # (OAuth, playlist import) is gated on Phase 0-B and adds nothing here.
+    #
+    # The key lives in its OWN SSM parameter, not in `/myblog/music`, because the
+    # Step A5 refresh job in myblog_worker reads the same credential. Copying it
+    # into per-service blobs would create a rotation-drift surface for a key the
+    # owner has already had to treat as exposed once.
+    #
+    # It is deliberately NOT in the required-key check below: music must keep
+    # booting when YouTube is unconfigured. The YouTube endpoint fails closed on
+    # its own (503) instead — an absent credential must never widen anything, but
+    # it also must not take down album search.
+    YOUTUBE_SECRETS_PARAM: str = ""
+    YOUTUBE_API_KEY: str = ""
+    YOUTUBE_API_BASE: str = "https://www.googleapis.com/youtube/v3"
+    YOUTUBE_HTTP_TIMEOUT: float = 10.0
+    # Candidates shown to the member. 10 keeps one search.list page cheap to
+    # enrich (videos.list takes 50 ids at 1 unit, so the enrichment is free at
+    # any value here) while staying a list a human can actually read.
+    YOUTUBE_SEARCH_MAX_RESULTS: int = 10
+
     # Cognito (auth for /candidates)
     COGNITO_REGION: str = "ap-northeast-2"
     COGNITO_USER_POOL_ID: str = ""
@@ -126,6 +148,20 @@ def get_settings() -> Settings:
             raise ValueError(
                 f"Required secrets missing after SSM load: {missing}. "
                 f"Check the {s.SECRETS_PARAM} SecureString and the Lambda role's ssm:GetParameter policy."
+            )
+    # Loaded separately and NOT required: see YOUTUBE_SECRETS_PARAM above.
+    # A failure here must not stop music from serving album search, so the
+    # exception is logged and swallowed — and the endpoint then fails closed
+    # because YOUTUBE_API_KEY stays empty. That is the only place in this file
+    # where a swallowed SSM failure is correct, and it is correct precisely
+    # because the fallback state is "refuse", not "proceed unauthenticated".
+    if s.YOUTUBE_SECRETS_PARAM and not s.YOUTUBE_API_KEY:
+        try:
+            s.YOUTUBE_API_KEY = _load_secrets(s.YOUTUBE_SECRETS_PARAM).get("YOUTUBE_API_KEY", "")
+        except Exception:
+            logger.error(
+                "YouTube secret load failed for %s; the YouTube endpoints will fail closed.",
+                s.YOUTUBE_SECRETS_PARAM,
             )
     return s
 
