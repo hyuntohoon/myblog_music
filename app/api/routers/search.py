@@ -27,6 +27,8 @@ from app.core.ids import parse_uuid_or_404
 from myblog_shared_db.models import (
     Album,
     Artist as TrackArtist,
+    ReviewBucket,
+    ReviewBucketItem,
     Track,
     album_artists_table,
     track_artists_table,
@@ -154,13 +156,19 @@ def search_youtube_candidates(
     track_id: str = Query(..., description="카탈로그 트랙 UUID"),
     limit: Optional[int] = Query(None, ge=1, le=25, description="후보 수 (기본: 설정값)"),
     db: Session = Depends(get_db),
-    _claims: dict = Depends(require_cognito_token),
+    claims: dict = Depends(require_cognito_token),
 ):
     # A non-UUID must never reach psycopg — it raises InvalidTextRepresentation
     # and the route 500s. Same defect class as AUDIT-2026-07-26 A-3, same helper,
     # and this route is in tests/test_malformed_ids.py alongside the original four.
     track_uuid = parse_uuid_or_404(track_id, detail="track not found")
 
+    # FETCH -> MATERIALIZE -> CLOSE -> EXTERNAL WORK. The outbound YouTube calls
+    # below must NOT run inside this request's transaction: a session held open
+    # across an external API call is the recurring bug class that produced the
+    # Neon ProtocolViolation (workspace CLAUDE.md). Everything the response and
+    # the search need is copied into plain values here, and the session is
+    # released before the first HTTP call.
     # FETCH -> MATERIALIZE -> CLOSE -> EXTERNAL WORK. The outbound YouTube calls
     # below must NOT run inside this request's transaction: a session held open
     # across an external API call is the recurring bug class that produced the
@@ -180,6 +188,53 @@ def search_youtube_candidates(
     ).first()
     if row is None:
         raise HTTPException(status_code=404, detail="track not found")
+
+    # STANDING, checked BEFORE a single quota unit is spent (OQ7, extended to
+    # this route by the Step-A2 security review), and after the 404 above so an
+    # unknown id does not answer 403.
+    #
+    # A3's mutations already require the caller to hold the track in one of
+    # their own buckets. This route is what PRODUCES those writes, and it spends
+    # the same globally shared resource OQ7 calls "a shared scarce resource
+    # (100 search.list calls/day for everyone)". Gating the write while leaving
+    # the spend open is an authorization asymmetry, not merely a missing
+    # throttle: Cognito self-signup is OPEN (infra/cognito.tf,
+    # allow_admin_create_user_only = false, plus Google and Kakao IdPs), so
+    # "authenticated member" is not a trust boundary here — and track UUIDs need
+    # no credentials at all, because /api/music/search/unified is unauthenticated
+    # and returns them. Without this predicate a stranger could exhaust the day's
+    # discovery budget on tracks they could never map, taking the owner's picker
+    # AND the Step-A5 refresh job down with it.
+    #
+    # `require_owner` is not the fix and is not available here: authorization
+    # tiers are backend-only by contract (CLAUDE.md), and OQ7 rejected
+    # owner-gating on a measurement — a non-owner member holds 13 of the 29 live
+    # playback rows.
+    sub = (claims or {}).get("sub")
+    if sub is not None:
+        # `sub` is absent only under the ENV=local|dev bypass, where
+        # require_cognito_token returns {} by design. Skipping the predicate
+        # there matches every other member-scoped read in this system and is not
+        # a second bypass switch — no deployed environment may run with
+        # ENV=local|dev.
+        has_standing = db.execute(
+            select(ReviewBucketItem.id)
+            .join(ReviewBucket, ReviewBucket.id == ReviewBucketItem.bucket_id)
+            .where(
+                ReviewBucketItem.track_id == track_uuid,
+                ReviewBucket.user_id == sub,
+            )
+            .limit(1)
+        ).first()
+        if has_standing is None:
+            # 403, not 404: the track exists and the caller simply has no
+            # standing. Hiding that behind a 404 would make "add it to a bucket
+            # first" undiscoverable — and 403 is the same answer A3's write gives.
+            raise HTTPException(
+                status_code=403,
+                detail="You can only look up candidates for a track in one of your own buckets.",
+            )
+
     track_id_str, title, duration_sec, track_artist, album_artist = (
         str(row[0]), row[1], row[2], row[3], row[4],
     )

@@ -137,10 +137,16 @@ class YouTubeClient:
         into a 500.
         """
         try:
-            errors = ((r.json() or {}).get("error") or {}).get("errors") or []
-            return (errors[0] or {}).get("reason") or ""
+            body = r.json()
+            errors = ((body or {}).get("error") or {}).get("errors") or []
+            reason = (errors[0] or {}).get("reason")
         except Exception:
             return ""
+        # The RETURN TYPE has to be guaranteed, not just the absence of a raise:
+        # a non-string `reason` (an object, say) is unhashable, and the caller's
+        # `reason in DAILY_QUOTA_REASONS` would raise TypeError — turning the
+        # intended 502 into a 500. "Never raises" is only useful with this.
+        return reason if isinstance(reason, str) else ""
 
     @staticmethod
     def _items(body: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -183,7 +189,10 @@ class YouTubeClient:
         for item in self._items(body):
             vid = (item.get("id") or {})
             vid = vid.get("videoId") if isinstance(vid, dict) else None
-            if vid:
+            # isinstance(str), not truthiness: a non-string videoId flows into
+            # `",".join(ids)` in list_videos and raises TypeError there — a 500
+            # where the contract says 502.
+            if isinstance(vid, str) and vid:
                 out.append(vid)
         return out
 
@@ -206,7 +215,10 @@ class YouTubeClient:
         # the live API ignores it. A parameter that does nothing is noise that
         # reads like a bound.
         body = self._get("videos", {"part": "snippet,status,contentDetails", "id": ",".join(ids)})
-        return {it["id"]: it for it in self._items(body) if it.get("id")}
+        # isinstance(str), not truthiness: a non-string `id` (an object) is
+        # unhashable and would raise TypeError building this dict — the same
+        # asymmetry `_items` exists to prevent, one line further down.
+        return {it["id"]: it for it in self._items(body) if isinstance(it.get("id"), str)}
 
 
 youtube = YouTubeClient()

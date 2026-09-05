@@ -442,6 +442,65 @@ def test_malformed_success_bodies_never_escape_as_a_500(monkeypatch, body, label
             raise AssertionError(f"{label}: escaped as {type(e).__name__}, not YouTubeError") from e
 
 
+@pytest.mark.parametrize("reason", [{"nested": "object"}, ["list"], 42])
+def test_a_non_string_error_reason_is_not_unhashable(monkeypatch, reason):
+    """`reason in DAILY_QUOTA_REASONS` raises TypeError on an unhashable value.
+
+    `_error_reason` is documented "never raises" and does not — but the promise
+    is only useful if its RETURN TYPE is guaranteed too, because the caller
+    immediately uses the value as a set member. A non-string reason turned the
+    intended 502 into a 500.
+    """
+    monkeypatch.setattr("app.core.config.settings.YOUTUBE_API_KEY", "k", raising=False)
+    monkeypatch.setattr("httpx.get", lambda *a, **k: _FakeResponse(
+        403, {"error": {"errors": [{"reason": reason}]}}))
+    with pytest.raises(YouTubeError) as ei:
+        YouTubeClient().search_videos(q="x")
+    assert not isinstance(ei.value, (YouTubeQuotaExhausted, YouTubeRateLimited))
+
+
+def test_a_non_string_video_id_is_dropped_not_crashed(monkeypatch):
+    """An unhashable `id` would raise TypeError building the result dict."""
+    monkeypatch.setattr("app.core.config.settings.YOUTUBE_API_KEY", "k", raising=False)
+    monkeypatch.setattr("httpx.get", lambda *a, **k: _FakeResponse(200, {"items": [
+        {"id": {"weird": "object"}, "snippet": {}, "status": {}, "contentDetails": {}},
+        {"id": "good", "snippet": {}, "status": {}, "contentDetails": {}},
+    ]}))
+    assert list(YouTubeClient().list_videos(["good"])) == ["good"]
+
+
+def test_a_non_string_search_video_id_never_reaches_the_join(monkeypatch):
+    """`",".join(ids)` in list_videos raises TypeError on a non-string element."""
+    monkeypatch.setattr("app.core.config.settings.YOUTUBE_API_KEY", "k", raising=False)
+    monkeypatch.setattr("httpx.get", lambda *a, **k: _FakeResponse(200, {"items": [
+        {"id": {"videoId": {"weird": "object"}}},
+        {"id": {"videoId": "good"}},
+    ]}))
+    ids = YouTubeClient().search_videos(q="x")
+    assert ids == ["good"]
+    ",".join(ids)  # would raise TypeError if a non-string had survived
+
+
+@pytest.mark.parametrize("duration", [{"weird": "object"}, ["list"], 253, True])
+def test_a_non_string_duration_does_not_crash_the_parser(duration):
+    """`re.match` raises TypeError on a truthy non-string."""
+    assert parse_iso8601_duration(duration) is None
+
+
+def test_a_non_string_duration_in_a_full_payload_is_still_offered(patch_youtube):
+    """End to end: the candidate survives with an unknown duration, not a 500."""
+    patch_youtube(StubYouTube(["v"], {"v": {
+        "id": "v",
+        "snippet": {"title": "T", "channelTitle": "C", "thumbnails": {}},
+        "status": {"embeddable": True, "privacyStatus": "public", "madeForKids": False},
+        "contentDetails": {"duration": {"weird": "object"}},
+    }}))
+    _q, out = YouTubeCandidateService().find_candidates(
+        title="t", artist_name="a", track_duration_sec=300, max_results=10)
+    assert [c["video_id"] for c in out] == ["v"]
+    assert out[0]["duration_sec"] is None and out[0]["duration_delta_sec"] is None
+
+
 def test_non_json_success_body_is_an_upstream_error(monkeypatch):
     monkeypatch.setattr("app.core.config.settings.YOUTUBE_API_KEY", "k", raising=False)
     monkeypatch.setattr("httpx.get", lambda *a, **k: _FakeResponse(200, ValueError("not json")))
@@ -543,8 +602,15 @@ from fastapi.testclient import TestClient
 TRACK_ID = "11111111-2222-3333-4444-555555555555"
 
 
-def _client(row):
-    """TestClient whose DB returns `row` (the materialised tuple) or None.
+SUB = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+
+
+def _client(row, *, standing=True, sub=SUB):
+    """TestClient whose DB answers the track SELECT then the standing SELECT.
+
+    `standing=False` makes the second query return None, which is a member who
+    is authenticated but does not hold the track. `sub=None` simulates the
+    ENV=local|dev bypass, where require_cognito_token returns {}.
 
     Auth is overridden rather than removed: this endpoint is authenticated, and
     a harness that dropped the dependency could not tell an authenticated route
@@ -555,9 +621,21 @@ def _client(row):
     from app.main import app
 
     session = MagicMock()
-    session.execute.return_value.first.return_value = row
+    # Cycled, not popped: one client may serve several requests (the `limit`
+    # test does), and a one-shot list would make the second request see a
+    # missing track rather than the case under test.
+    import itertools
+
+    answers = itertools.cycle([row, (1,) if standing else None])
+
+    def _execute(*_a, **_k):
+        result = MagicMock()
+        result.first.return_value = next(answers)
+        return result
+
+    session.execute.side_effect = _execute
     app.dependency_overrides[get_db] = lambda: session
-    app.dependency_overrides[require_cognito_token] = lambda: {"sub": "test-sub"}
+    app.dependency_overrides[require_cognito_token] = lambda: ({"sub": sub} if sub else {})
     return TestClient(app), app, session
 
 
@@ -755,6 +833,80 @@ def test_upstream_failure_is_502(monkeypatch):
     try:
         r = client.get(f"/api/music/search/youtube-candidates?track_id={TRACK_ID}")
         assert r.status_code == 502
+    finally:
+        _teardown(app)
+
+
+def test_a_member_without_standing_is_403_and_spends_no_quota(monkeypatch):
+    """The authorization asymmetry the Step-A2 security review found.
+
+    A3's WRITE requires the caller to hold the track in one of their own
+    buckets. This route is what produces those writes and spends the same
+    globally shared discovery budget, so leaving it open is an authorization
+    gap, not a missing throttle: Cognito self-signup is open, and track UUIDs
+    are readable from the UNAUTHENTICATED /api/music/search/unified. Without
+    this predicate a stranger could burn the day's quota on tracks they could
+    never map, taking the owner's picker and the A5 refresh job down with it.
+
+    The zero-quota assertion is the load-bearing half — a 403 returned AFTER the
+    search would leave the hole exactly as it was.
+    """
+    stub = StubYouTube(["v"], {"v": _video("v", title="X", channel="ch", duration="PT5M00S")})
+    monkeypatch.setattr("app.services.youtube_candidate_service.youtube", stub)
+    client, app, _ = _client(_row(), standing=False)
+    try:
+        r = client.get(f"/api/music/search/youtube-candidates?track_id={TRACK_ID}")
+        assert r.status_code == 403, r.text
+        assert stub.search_calls == 0, "a caller without standing must spend zero quota units"
+    finally:
+        _teardown(app)
+
+
+def test_a_member_with_standing_still_gets_candidates(monkeypatch):
+    """Control for the test above: the gate must not reject everyone."""
+    stub = StubYouTube(["v"], {"v": _video("v", title="X", channel="ch", duration="PT5M00S")})
+    monkeypatch.setattr("app.services.youtube_candidate_service.youtube", stub)
+    client, app, _ = _client(_row(), standing=True)
+    try:
+        r = client.get(f"/api/music/search/youtube-candidates?track_id={TRACK_ID}")
+        assert r.status_code == 200, r.text
+        assert [c["video_id"] for c in r.json()["candidates"]] == ["v"]
+        assert stub.search_calls == 1
+    finally:
+        _teardown(app)
+
+
+def test_an_unknown_track_is_404_not_403(monkeypatch):
+    """Ordering control: existence is checked before standing.
+
+    Checking standing first would answer 403 for a track that does not exist,
+    which is a worse error and hides a real 404 behind a permissions message.
+    """
+    stub = StubYouTube(["v"], {})
+    monkeypatch.setattr("app.services.youtube_candidate_service.youtube", stub)
+    client, app, _ = _client(None, standing=False)
+    try:
+        r = client.get(f"/api/music/search/youtube-candidates?track_id={TRACK_ID}")
+        assert r.status_code == 404, r.text
+        assert stub.search_calls == 0
+    finally:
+        _teardown(app)
+
+
+def test_the_local_dev_bypass_does_not_require_standing(monkeypatch):
+    """Under ENV=local|dev `require_cognito_token` returns {} — there is no sub.
+
+    The predicate is skipped there, exactly as every other member-scoped read in
+    this system behaves under the bypass. This is NOT a second bypass switch: no
+    deployed environment may run with ENV=local|dev, and the switch is the
+    existing one, not a new one.
+    """
+    stub = StubYouTube(["v"], {"v": _video("v", title="X", channel="ch", duration="PT5M00S")})
+    monkeypatch.setattr("app.services.youtube_candidate_service.youtube", stub)
+    client, app, _ = _client(_row(), standing=False, sub=None)
+    try:
+        r = client.get(f"/api/music/search/youtube-candidates?track_id={TRACK_ID}")
+        assert r.status_code == 200, r.text
     finally:
         _teardown(app)
 

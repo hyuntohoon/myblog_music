@@ -41,7 +41,10 @@ def parse_iso8601_duration(value: Optional[str]) -> Optional[int]:
     part, and a candidate whose duration is unknown must still be offerable —
     it simply cannot be ranked by proximity.
     """
-    if not value:
+    # isinstance(str) rather than truthiness: `re.match` raises TypeError on a
+    # truthy non-string, which the router does not catch — a 500 where the
+    # client's contract says 502.
+    if not isinstance(value, str) or not value:
         return None
     m = _ISO_DURATION.match(value)
     if not m:
