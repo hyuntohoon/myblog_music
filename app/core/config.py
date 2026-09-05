@@ -71,7 +71,13 @@ class Settings(BaseSettings):
     YOUTUBE_SECRETS_PARAM: str = ""
     YOUTUBE_API_KEY: str = ""
     YOUTUBE_API_BASE: str = "https://www.googleapis.com/youtube/v3"
-    YOUTUBE_HTTP_TIMEOUT: float = 10.0
+    # PER CALL, and one request makes TWO sequential calls, so this is a budget
+    # of 2x. musicApi's Lambda timeout is 15s (workspace infra/lambda.tf): at
+    # 10s per call a slow-but-not-failing YouTube would kill the function before
+    # either timeout fired, and the member would get a bare API Gateway 502
+    # instead of the 429/503/502 taxonomy. 4.0 leaves 7s for the DB read, the
+    # response and a cold start. Asserted by a test against the 15s figure.
+    YOUTUBE_HTTP_TIMEOUT: float = 4.0
     # Candidates shown to the member. 10 keeps one search.list page cheap to
     # enrich (videos.list takes 50 ids at 1 unit, so the enrichment is free at
     # any value here) while staying a list a human can actually read.

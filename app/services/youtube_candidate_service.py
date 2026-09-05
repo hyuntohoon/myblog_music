@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.clients.youtube_client import youtube
 
@@ -74,14 +74,21 @@ class YouTubeCandidateService:
         artist_name: Optional[str],
         track_duration_sec: Optional[int],
         max_results: int,
-    ) -> List[Dict[str, Any]]:
+    ) -> Tuple[str, List[Dict[str, Any]]]:
+        """Returns ``(query, candidates)``.
+
+        The query is RETURNED rather than recomputed by the caller: it is what
+        the member sees when nothing matched, and two call sites deriving the
+        same string by convention is one edit away from a response that reports
+        a query the search never ran.
+        """
         q = self.build_query(title=title, artist_name=artist_name)
         if not q:
-            return []
+            return q, []
 
         video_ids = youtube.search_videos(q=q, max_results=max_results)
         if not video_ids:
-            return []
+            return q, []
 
         # One enrichment call for the whole page (1 unit). Ids absent from the
         # response are deleted/private; they are dropped rather than shown,
@@ -131,7 +138,7 @@ class YouTubeCandidateService:
         # with an unknown duration sort last but are NOT dropped: "unrankable"
         # and "wrong" are different, and only the member can tell which.
         out.sort(key=lambda c: (c["duration_delta_sec"] is None, c["duration_delta_sec"] or 0, c["search_rank"]))
-        return out
+        return q, out
 
     @staticmethod
     def _thumbnail(snippet: Dict[str, Any]) -> Optional[str]:
