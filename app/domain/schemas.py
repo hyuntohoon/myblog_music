@@ -232,6 +232,32 @@ class CandidateSearchResult(BaseModel):
     tracks_pagination: Optional[CandidatePagination] = None
 
 
+# --- FEAT-youtube-playback-provider Step A2: YouTube candidate search ---
+
+class YouTubeCandidateItem(BaseModel):
+    video_id: str
+    title: Optional[str] = None
+    # Surfaced deliberately: 3 of 20 top results in the Phase 0-A probe were
+    # unofficial fan uploads, and the channel is the only field that shows it.
+    channel_title: Optional[str] = None
+    thumbnail_url: Optional[str] = None
+    duration_sec: Optional[int] = None
+    # A HINT FOR A HUMAN, never a validator. Music videos run +5s..+17s long and
+    # an edited official video ran -22s on the measured probe.
+    duration_delta_sec: Optional[int] = None
+    embeddable: bool
+    privacy_status: Optional[str] = None
+    made_for_kids: Optional[bool] = None
+    search_rank: int
+
+
+class YouTubeCandidateSearchResult(BaseModel):
+    track_id: str
+    query: str
+    track_duration_sec: Optional[int] = None
+    candidates: List[YouTubeCandidateItem] = Field(default_factory=list)
+
+
 SpotifyAlbumId = Annotated[str, Field(min_length=1, max_length=128, pattern=r"^\S+$")]
 SpotifyMarket = Annotated[str, Field(pattern=r"^[A-Za-z]{2}$")]
 

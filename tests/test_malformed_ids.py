@@ -49,6 +49,10 @@ def _client_and_db():
         f"/api/music/artists/{BAD}",
         f"/api/music/artists/{BAD}/albums",
         f"/api/music/artists/{BAD}/top-tracks",
+        # FEAT-youtube-playback-provider A2. The first AUTHENTICATED member of
+        # this class — the suite runs with ENV=local so the guard is bypassed and
+        # the route is reached exactly as the public four are.
+        f"/api/music/search/youtube-candidates?track_id={BAD}",
     ],
 )
 def test_malformed_id_is_404_and_never_queries(path):

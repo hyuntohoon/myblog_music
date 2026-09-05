@@ -1809,6 +1809,142 @@
         ],
         "title": "ValidationError",
         "type": "object"
+      },
+      "YouTubeCandidateItem": {
+        "properties": {
+          "channel_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channel Title"
+          },
+          "duration_delta_sec": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Delta Sec"
+          },
+          "duration_sec": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Sec"
+          },
+          "embeddable": {
+            "title": "Embeddable",
+            "type": "boolean"
+          },
+          "made_for_kids": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Made For Kids"
+          },
+          "privacy_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Privacy Status"
+          },
+          "search_rank": {
+            "title": "Search Rank",
+            "type": "integer"
+          },
+          "thumbnail_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thumbnail Url"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "video_id": {
+            "title": "Video Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "video_id",
+          "embeddable",
+          "search_rank"
+        ],
+        "title": "YouTubeCandidateItem",
+        "type": "object"
+      },
+      "YouTubeCandidateSearchResult": {
+        "properties": {
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/YouTubeCandidateItem"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "query": {
+            "title": "Query",
+            "type": "string"
+          },
+          "track_duration_sec": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Track Duration Sec"
+          },
+          "track_id": {
+            "title": "Track Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "track_id",
+          "query"
+        ],
+        "title": "YouTubeCandidateSearchResult",
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -2583,6 +2719,75 @@
           }
         },
         "summary": "\ud1b5\ud569 \uac80\uc0c9(DB-first)",
+        "tags": [
+          "Search"
+        ]
+      }
+    },
+    "/api/music/search/youtube-candidates": {
+      "get": {
+        "operationId": "search_youtube_candidates_api_music_search_youtube_candidates_get",
+        "parameters": [
+          {
+            "description": "\uce74\ud0c8\ub85c\uadf8 \ud2b8\ub799 UUID",
+            "in": "query",
+            "name": "track_id",
+            "required": true,
+            "schema": {
+              "description": "\uce74\ud0c8\ub85c\uadf8 \ud2b8\ub799 UUID",
+              "title": "Track Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "\ud6c4\ubcf4 \uc218 (\uae30\ubcf8: \uc124\uc815\uac12)",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 25,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "\ud6c4\ubcf4 \uc218 (\uae30\ubcf8: \uc124\uc815\uac12)",
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/YouTubeCandidateSearchResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "YouTube \ud6c4\ubcf4 \uac80\uc0c9(\uc77d\uae30 \uc804\uc6a9)",
         "tags": [
           "Search"
         ]
