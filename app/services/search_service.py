@@ -9,6 +9,8 @@ from app.repositories.artist_repo import ArtistRepository
 from app.repositories.album_repo import AlbumRepository
 from app.repositories.track_repo import TrackRepository
 
+from app.services.album_editions import collapse_editions
+
 from app.domain.schemas import ExplainEntry, UnifiedSearchResult
 
 from app.mappers.album_mapper import AlbumItemMapper
@@ -271,6 +273,14 @@ class SearchService:
             (literal_tracks, PATH_LITERAL),
             (exp_tracks, PATH_EXPANSION),
         )
+
+        # ---- Phase 3.5: collapse duplicate album editions (DATA-release-noise (c)) ----
+        # `_merge_paths` dedups on `.id`, which cannot see that two DIFFERENT ids
+        # are the same release ingested twice — `?q=iceman` returned ICEMAN twice
+        # on prod. Collapse before Phase 5 trims, or the duplicate spends one of
+        # the `limit` slots. The survivor keeps its own path label because the
+        # map is keyed by id and the dropped twin's entry simply goes unread.
+        albums_merged = collapse_editions(albums_merged)
 
         # ---- Phase 4: rank per bucket per the path-dependent rules ----
         ranked_artists = _rank_artists(artists_merged, artist_path, q)

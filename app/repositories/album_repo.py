@@ -274,6 +274,11 @@ class AlbumRepository:
 
         stmt = (
             select(Album, Artist)
+            # DATA-release-noise (c): the service collapses duplicate editions over
+            # this result, and its key reads Album.artists. Without the eager load
+            # that key would lazy-load one query per album (N+1) on a path that
+            # previously never touched the relationship.
+            .options(selectinload(Album.artists))
             .join(album_artists_table, album_artists_table.c.album_id == Album.id)
             .join(Artist, album_artists_table.c.artist_id == Artist.id)
             .where(filter_expr)   # ← 조건만 다름
