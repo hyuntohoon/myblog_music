@@ -9,6 +9,12 @@ from app.repositories.track_repo import TrackRepository
 from app.domain.schemas import ArtistHero, ArtistIdItem, CatalogGenreItem, SearchResult, TrackItem
 from app.mappers.album_mapper import AlbumItemMapper
 from app.mappers.track_mapper import TrackItemMapper
+from app.services.album_editions import collapse_editions
+
+# Upper bound on one artist's discography read, so the edition collapse below
+# sees the whole list rather than a page of it. Prod's largest discography is 92
+# albums (p99 = 21, 2026-09-03), so this is headroom, not a truncation risk.
+DISCOGRAPHY_FETCH_CAP = 300
 
 
 class ArtistService:
@@ -33,11 +39,20 @@ class ArtistService:
         limit: int,
         offset: int,
     ) -> SearchResult:
+        # DATA-release-noise (c): a discography showed the same release twice when
+        # Spotify had handed out two album ids for it (the 2026-07-26 audit's
+        # duplicate ICEMAN in Drake's list). Collapsing has to happen over the
+        # WHOLE discography, not the requested page — paging first would let a
+        # twin split across a page boundary survive, and would make page sizes
+        # ragged. The largest discography in prod is 92 albums (p99 = 21), so one
+        # capped read covers every artist, and `offset`/`limit` then apply to the
+        # collapsed list, which is the list the caller believes it is paging.
         albums, primary_map = self.album_repo.list_by_artistId_artist(
             artist_id=artist_id,
-            limit=limit,
-            offset=offset,
+            limit=DISCOGRAPHY_FETCH_CAP,
+            offset=0,
         )
+        albums = collapse_editions(albums)[offset : offset + limit]
         items = AlbumItemMapper.to_list(albums, primary_map)
         return SearchResult(type="album", items=items)
 
