@@ -128,17 +128,34 @@ jobs:
           python scripts/export_openapi.py
           git diff --exit-code openapi.json
 
-  # Real-DB suite against the Neon test branch (synced to prod schema 2026-07-29).
-  # Split from `test` because it needs a live DB. Mirrors the backend job.
+  # Real-DB suite against a local Postgres loaded with the canonical schema — the
+  # same shape as backend and worker (OPS-ci-cd-optimization Step 7). Until
+  # 2026-10 this ran against the Neon test branch, which lagged prod migrations
+  # and needed a manual apply; no test here reads Neon data — each DB-bound test
+  # inserts its own rows in a rolled-back transaction.
   #
   # A skip is treated as a FAILURE: this suite reported green while fully skipped
   # for months, which is the pattern that let two isrc write-path defects reach
   # prod. `recall_gate` is deselected — it is a measurement harness that reports
-  # Hit@5 against whatever catalog it is pointed at, not a pass/fail gate, and on
-  # the test branch it measures missing data rather than lost recall (pytest.ini).
+  # Hit@5 against whatever catalog it is pointed at, not a pass/fail gate
+  # (pytest.ini). Keep the deselect: the harness falls back to TEST_DB_URL, so
+  # without it the harness would run against this empty local DB.
   integration:
     runs-on: ubuntu-latest
     services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: myblog_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d myblog_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
       localstack:
         image: localstack/localstack:3.8.1
         env:
@@ -155,6 +172,38 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The schema must match the models this service actually installs, so the
+      # ref comes from requirements.lock rather than a second literal copy of the
+      # pin (a copy drifts on the next bump — the worker's UndefinedTable class).
+      - name: Resolve shared_db pin from requirements.lock
+        id: shared_db_pin
+        run: |
+          set -euo pipefail
+          ref="$(sed -nE 's|^myblog-shared-db @ git\+https://github\.com/hyuntohoon/myblog_shared_db\.git@([0-9a-f]{40})$|\1|p' requirements.lock)"
+          if [ "$(printf '%s\n' "$ref" | grep -c .)" -ne 1 ]; then
+            echo "::error::expected exactly one 40-hex myblog-shared-db pin in requirements.lock"
+            exit 1
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "canonical schema ref: $ref"
+
+      - name: Check out canonical schema
+        uses: actions/checkout@v4
+        with:
+          repository: hyuntohoon/myblog_shared_db
+          ref: ${{ steps.shared_db_pin.outputs.ref }}
+          token: ${{ secrets.SHARED_DB_PAT }}
+          persist-credentials: false
+          path: shared-db-schema
+
+      - name: Load canonical schema
+        env:
+          POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+        run: |
+          docker exec -i "$POSTGRES_CONTAINER_ID" \
+            psql -U postgres -d myblog_test --set ON_ERROR_STOP=on \
+            < shared-db-schema/tests/canonical_schema.sql
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -169,38 +218,36 @@ jobs:
 
       - name: Run integration suite
         env:
-          TEST_DB_URL: ${{ secrets.TEST_DB_URL }}
+          TEST_DB_URL: postgresql+psycopg://postgres:postgres@localhost:5432/myblog_test
           DATABASE_URL: "postgresql+psycopg://x:x@localhost/x"
         run: |
-          if [ -z "$TEST_DB_URL" ]; then
-            echo "::error::TEST_DB_URL secret is not set on this repo — the integration suite would self-skip and report a false green."
-            exit 1
-          fi
-          # The secret must be a full SQLAlchemy URL, not the Neon password on its
-          # own (the console shows the two side by side, and pasting the password
-          # yields an opaque "Could not parse SQLAlchemy URL"). Never echo the
-          # value, a slice of it, or its length: a wrong secret is usually wrong by
-          # BEING a raw credential.
-          case "$TEST_DB_URL" in
-            postgresql://*|postgresql+*://*) ;;
-            *)
-              echo "::error::TEST_DB_URL is set but does not start with postgresql:// — it looks like the Neon password pasted on its own. Set the full connection string: postgresql+psycopg://USER:PASSWORD@HOST/neondb?sslmode=require"
-              exit 1
-              ;;
-          esac
           # pipefail is NOT on by default in Actions' `bash -e` — without it the
           # pipeline exits with tee's status and a failing pytest reads as green.
           set -o pipefail
-          pytest tests/integration -m "integration and not recall_gate" -rs | tee /tmp/integration.txt
+          pytest tests/integration -m "integration and not recall_gate" -rs \
+            --junitxml=/tmp/integration.xml | tee /tmp/integration.txt
 
-      - name: Fail on DB-reason skips
+      - name: Enforce zero integration skips
         run: |
-          if grep -E '^SKIPPED' /tmp/integration.txt | grep -qiE 'TEST_DB_URL|test branch|not deployed|schema'; then
-            echo "::error::a suite skipped for a DB/schema reason — treat as failure, not green:"
-            grep -E '^SKIPPED' /tmp/integration.txt
-            exit 1
-          fi
-          echo "No DB-reason skips."
+          # Inspect pytest's machine-readable report so any skip fails regardless
+          # of reason text (the old grep matched only four DB-reason phrases).
+          python - <<'PY'
+          import sys
+          from xml.etree import ElementTree
+
+          report = ElementTree.parse("/tmp/integration.xml")
+          cases = list(report.getroot().iter("testcase"))
+          skipped = [case for case in cases if case.find("skipped") is not None]
+          if not cases:
+              print("::error::integration suite collected zero tests")
+              sys.exit(1)
+          if skipped:
+              print(f"::error::{len(skipped)} integration test(s) skipped; expected zero")
+              for case in skipped:
+                  print(f"SKIPPED {case.get('classname')}.{case.get('name')}")
+              sys.exit(1)
+          print(f"Integration suite: {len(cases)} test(s), zero skips.")
+          PY
 
   deploy:
     # `integration` is in this list on purpose. Until 2026-08-28 it was not, so a
