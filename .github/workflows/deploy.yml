@@ -203,6 +203,8 @@ jobs:
           docker exec -i "$POSTGRES_CONTAINER_ID" \
             psql -U postgres -d myblog_test --set ON_ERROR_STOP=on \
             < shared-db-schema/tests/canonical_schema.sql
+          # MUTANT (never merge): drop a column the tests probe
+          docker exec -i "$POSTGRES_CONTAINER_ID" psql -U postgres -d myblog_test -c "ALTER TABLE albums DROP COLUMN popularity CASCADE"
 
       - uses: actions/setup-python@v5
         with:
