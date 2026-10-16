@@ -7,6 +7,8 @@ from functools import lru_cache
 from typing import Iterable, List, Dict
 
 import boto3
+from botocore.config import Config
+
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -119,10 +121,25 @@ class SqsClient:
             raise SqsEnqueueError("Album-sync enqueue failed") from e
 
 
+# Every outbound request has an explicit timeout (CLAUDE.md; swept with backend #189's
+# SQS client fix). boto3's defaults are 60 s connect + 60 s read with retries, which the
+# user-facing album-sync enqueue must not sit through.
+_SQS_CONNECT_TIMEOUT_SEC = 3
+_SQS_READ_TIMEOUT_SEC = 5
+_SQS_MAX_ATTEMPTS = 2
+
+
 @lru_cache(maxsize=1)
 def _get_boto_sqs(region: str, endpoint_url: str | None = None):
     """endpoint_url 있으면 LocalStack, 없으면 AWS 실서비스"""
-    params = {"region_name": region}
+    params = {
+        "region_name": region,
+        "config": Config(
+            connect_timeout=_SQS_CONNECT_TIMEOUT_SEC,
+            read_timeout=_SQS_READ_TIMEOUT_SEC,
+            retries={"max_attempts": _SQS_MAX_ATTEMPTS, "mode": "standard"},
+        ),
+    }
     if endpoint_url:
         params["endpoint_url"] = endpoint_url
     return boto3.client("sqs", **params)
