@@ -88,7 +88,9 @@ class AlbumRepository:
 
     # FEAT-today-buckit Step 1: albums released on today's month/day in past
     # years. Full-date rows only (release_date IS NOT NULL); current year
-    # excluded (past anniversaries only). Ordered newest-anniversary-first;
+    # excluded (past anniversaries only). Compilations excluded — an
+    # "Essentials" set read as a playlist on the home strip (audit #18);
+    # IS DISTINCT FROM keeps NULL-typed rows. Ordered newest-anniversary-first;
     # dedup + limit happen in the service over this capped fetch.
     def list_on_this_day(
         self,
@@ -106,6 +108,7 @@ class AlbumRepository:
                 func.extract("month", Album.release_date) == month,
                 func.extract("day", Album.release_date) == day,
                 func.extract("year", Album.release_date) != exclude_year,
+                Album.album_type.is_distinct_from("compilation"),
             )
             .order_by(
                 Album.release_date.desc().nullslast(),
